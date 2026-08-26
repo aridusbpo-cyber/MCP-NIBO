@@ -1,0 +1,16 @@
+{
+  "_leia_me": "Copie este arquivo para ~/.nibo-mcp/empresas.json e troque pelos seus dados. NUNCA versione o arquivo com tokens reais.",
+  "padrao": "cliente-a",
+  "empresas": {
+    "cliente-a": {
+      "nome": "Cliente A Comércio Ltda",
+      "token": "COLE_O_APITOKEN_DA_EMPRESA_AQUI",
+      "escrita": false
+    },
+    "cliente-b": {
+      "nome": "Cliente B Serviços ME",
+      "token": "COLE_O_APITOKEN_DA_EMPRESA_AQUI",
+      "escrita": false
+    }
+  }
+}

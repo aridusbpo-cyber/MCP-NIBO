@@ -1,0 +1,5 @@
+# Nunca versionar tokens de cliente
+empresas.json
+*.token
+.env
+__pycache__/
