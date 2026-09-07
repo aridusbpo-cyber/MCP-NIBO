@@ -125,7 +125,7 @@ o Claude devolve uma prévia com o nome da empresa alvo para você conferir.
 
 ## Ferramentas
 
-**Cadastro:** `listar_empresas`, `adicionar_empresa`, `remover_empresa`,
+**Cadastro:** `listar_empresas`, `adicionar_empresa`, `renomear_empresa`, `remover_empresa`,
 `definir_empresa_padrao`, `definir_escrita_empresa`.
 
 **Leitura** (parâmetro `empresa` opcional — sem ele usa a padrão):

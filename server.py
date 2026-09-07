@@ -324,6 +324,34 @@ def adicionar_empresa(apelido: str, nome: str, token: str,
 
 
 @mcp.tool()
+def renomear_empresa(apelido: str, nome: str, confirmar: bool = False) -> dict:
+    """Troca só o nome de exibição de uma empresa/cliente já cadastrado.
+    Não mexe no token, na escrita nem no apelido — use adicionar_empresa se quiser
+    trocar o token, ou remover_empresa + adicionar_empresa para trocar o apelido.
+    confirmar=true obrigatório."""
+    apelido = (apelido or "").strip().lower()
+    nome = (nome or "").strip()
+    if not nome:
+        return {"erro": "Nome vazio."}
+
+    cfg = _carregar()
+    if cfg.get("_erro"):
+        return {"erro": cfg["_erro"]}
+    if apelido not in cfg["empresas"]:
+        return {"erro": f"Empresa '{apelido}' não cadastrada.",
+                "empresas_disponiveis": sorted(cfg["empresas"])}
+
+    nome_atual = cfg["empresas"][apelido].get("nome", "")
+    if not confirmar:
+        return {"aviso": "Não executado. Reenvie com confirmar=true.",
+                "apelido": apelido, "nome_atual": nome_atual, "nome_novo": nome}
+
+    cfg["empresas"][apelido]["nome"] = nome
+    _salvar(cfg)
+    return {"ok": True, "apelido": apelido, "nome_anterior": nome_atual, "nome": nome}
+
+
+@mcp.tool()
 def remover_empresa(apelido: str, confirmar: bool = False) -> dict:
     """Remove uma empresa do cadastro deste MCP (não mexe em nada dentro do Nibo).
     confirmar=true obrigatório."""
