@@ -48,6 +48,35 @@ O arquivo é **lido a cada chamada** — cadastrar um cliente novo vale na hora,
 
 > Use `empresas.exemplo.json` como modelo. O `.gitignore` já impede que `empresas.json` seja versionado.
 
+### Opção: tokens por variável de ambiente (vale em qualquer máquina/sessão)
+
+Se o `empresas.json` não estiver na máquina (sessão nova, outro computador, nuvem), o servidor
+também carrega empresas de variáveis de ambiente — **uma por empresa**:
+
+| Variável | Para quê |
+|---|---|
+| `NIBO_TOKEN_<SLUG>` | ApiToken da empresa. O apelido vira o SLUG em minúsculas: `NIBO_TOKEN_DR_ORAL` → empresa `dr_oral` |
+| `NIBO_NOME_<SLUG>` | Nome de exibição (opcional) |
+| `NIBO_ESCRITA_<SLUG>` | `1` libera escrita nessa empresa (opcional; sem ela, só leitura) |
+| `NIBO_EMPRESA_PADRAO` | Apelido usado nas leituras quando você não diz a empresa (opcional) |
+
+Exemplo, no `env` do MCP (ou nas variáveis de ambiente do Windows / da sessão):
+```json
+"env": {
+  "NIBO_ALLOW_WRITE": "0",
+  "NIBO_TOKEN_DR_ORAL": "SEU_TOKEN",
+  "NIBO_NOME_DR_ORAL": "Dr Oral",
+  "NIBO_TOKEN_CAMILA": "SEU_TOKEN"
+}
+```
+
+- Env e `empresas.json` **somam**. Se o mesmo apelido estiver nos dois, o **token do env vence** e o
+  arquivo fica como fallback (nome e escrita do arquivo continuam valendo se o env não os definir).
+- Tokens do env **nunca** são gravados no `empresas.json`. `listar_empresas` mostra de onde veio cada
+  empresa (`fonte: env` ou `arquivo`), sempre com o token mascarado.
+- Empresa que vem do env não é removida nem tem a escrita alterada pelo chat: mexa na variável.
+- **Nunca** coloque tokens em arquivos versionados (repositório, `.json` de exemplo, scripts).
+
 ---
 
 ## Instalação

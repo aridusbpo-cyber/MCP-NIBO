@@ -3,3 +3,4 @@ empresas.json
 *.token
 .env
 __pycache__/
+.pytest_cache/
