@@ -11,6 +11,12 @@ Por que em Python e nao em PowerShell:
 - Faz BACKUP antes de qualquer alteracao.
 - So mexe na chave mcpServers.nibo; preserva todo o resto.
 - NAO grava token nenhum. Escrita comeca desligada (NIBO_ALLOW_WRITE=0).
+- Reinstalar preserva o env ja configurado (escrita, NIBO_EMPRESAS_FILE, NIBO_TOKEN_*).
+
+Uso:
+  python instalar_config.py                       -> cadastro no lugar padrao
+  python instalar_config.py --cadastro CAMINHO    -> cadastro em pasta na nuvem
+                                                     (OneDrive/Google Drive/Dropbox)
 """
 import json
 import os
@@ -23,15 +29,18 @@ HOME = Path(os.path.expanduser("~"))
 SERVER_PATH = str(HOME / "nibo-mcp" / "server.py")
 PYTHON = sys.executable  # o mesmo Python que rodou este script
 
-BLOCK = {
-    "type": "stdio",
-    "command": PYTHON,
-    "args": [SERVER_PATH],
-    "env": {"NIBO_ALLOW_WRITE": "0"},
-}
 
 
-def register(config_path: Path, create_if_missing: bool):
+def montar_bloco(antigo, cadastro):
+    env = {"NIBO_ALLOW_WRITE": "0"}
+    if isinstance(antigo, dict) and isinstance(antigo.get("env"), dict):
+        env.update(antigo["env"])  # mantem o que o usuario ja configurou
+    if cadastro:
+        env["NIBO_EMPRESAS_FILE"] = cadastro
+    return {"type": "stdio", "command": PYTHON, "args": [SERVER_PATH], "env": env}
+
+
+def register(config_path: Path, create_if_missing: bool, cadastro: str = ""):
     if not config_path.exists() and not create_if_missing:
         return None  # config nao existe e nao devemos criar (ex.: Desktop nao instalado)
 
@@ -56,7 +65,7 @@ def register(config_path: Path, create_if_missing: bool):
     if not isinstance(servers, dict):
         servers = {}
         cfg["mcpServers"] = servers
-    servers["nibo"] = BLOCK
+    servers["nibo"] = montar_bloco(servers.get("nibo"), cadastro)
 
     # escrita atomica: grava em .tmp e substitui de uma vez
     tmp = f"{config_path}.tmp"
@@ -67,16 +76,21 @@ def register(config_path: Path, create_if_missing: bool):
 
 
 def main():
+    cadastro = ""
+    if "--cadastro" in sys.argv:
+        i = sys.argv.index("--cadastro")
+        if i + 1 < len(sys.argv):
+            cadastro = str(Path(sys.argv[i + 1]).expanduser())
     claude_code = HOME / ".claude.json"
     claude_desktop = Path(os.environ.get("APPDATA", str(HOME))) / "Claude" / "claude_desktop_config.json"
 
     done = []
     # Claude Code: registra (cria se nao existir — o ecossistema usa .claude)
-    r = register(claude_code, create_if_missing=True)
+    r = register(claude_code, create_if_missing=True, cadastro=cadastro)
     if r:
         done.append(r)
     # Claude Desktop: so registra se ja estiver instalado
-    r = register(claude_desktop, create_if_missing=False)
+    r = register(claude_desktop, create_if_missing=False, cadastro=cadastro)
     if r:
         done.append(r)
 
@@ -85,6 +99,8 @@ def main():
         for d in done:
             print(f"    - {d}")
         print("  (backup .bak-... criado antes de alterar)")
+        if cadastro:
+            print(f"  Cadastro de empresas: {cadastro}")
     else:
         print("  [aviso] nenhum config do Claude foi atualizado.")
     return 0

@@ -2,7 +2,7 @@
 
 Este pacote liga o **Claude** ao **Nibo** (API `empresas/v1`) — leitura e, se você liberar, escrita — com suporte a **várias empresas/clientes** no mesmo servidor. Feito para BPO.
 
-> 🔒 **Sem segredos aqui dentro.** Este pacote **não contém token nenhum**. Cada um coloca os **seus próprios** ApiTokens do Nibo, que ficam guardados **só na sua máquina** (em `%USERPROFILE%\.nibo-mcp\empresas.json`, que nunca é compartilhado).
+> 🔒 **Sem segredos aqui dentro.** Este pacote **não contém token nenhum**. Cada um coloca os **seus próprios** ApiTokens do Nibo, que ficam guardados **só com você** (em `%USERPROFILE%\.nibo-mcp\empresas.json` ou, se preferir, numa pasta sua na nuvem).
 
 ---
 
@@ -26,6 +26,10 @@ O instalador cuida de tudo: instala dependências, copia o servidor, **registra 
 - **Ou editando o arquivo:** `%USERPROFILE%\.nibo-mcp\empresas.json`
 
 > Onde pegar o token no Nibo: **Configurações → Integrações/API**.
+
+> ☁️ **Quer usar em mais de um computador?** No passo 1, quando o instalador perguntar
+> *"Onde guardar os tokens das empresas?"*, escolha **Na nuvem** (OneDrive/Google Drive/Dropbox).
+> Rode o instalador em cada computador escolhendo a mesma pasta. Detalhes no `MANUAL-COMPLETO.md`.
 
 **3) Teste**
 Reinicie o Claude e peça:

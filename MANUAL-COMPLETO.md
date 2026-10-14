@@ -48,6 +48,32 @@ O arquivo é **lido a cada chamada** — cadastrar um cliente novo vale na hora,
 
 > Use `empresas.exemplo.json` como modelo. O `.gitignore` já impede que `empresas.json` seja versionado.
 
+### Usar os mesmos tokens em vários computadores
+
+**Opção A — pasta sincronizada (recomendado para PCs Windows).** Guarde o `empresas.json` numa
+pasta do OneDrive, Google Drive (app para desktop) ou Dropbox e aponte `NIBO_EMPRESAS_FILE` para ele.
+O `INSTALAR.ps1` faz isso sozinho: na pergunta *"Onde guardar os tokens das empresas?"* escolha
+**[2] Na nuvem** (ou **[3]** e informe a pasta). Se já existir um cadastro local, ele é copiado
+para a nuvem. Em cada computador novo, rode o instalador e escolha a mesma pasta — os tokens
+cadastrados num computador aparecem nos outros assim que a pasta sincronizar.
+
+> ⚠️ Os tokens ficam em **texto puro** dentro dessa pasta. Use só uma conta de nuvem sua, com
+> verificação em duas etapas, e **não compartilhe** a pasta com ninguém.
+
+**Opção B — variáveis de ambiente (sessões do Claude na nuvem, ou máquinas sem a pasta).**
+Cada empresa pode vir de uma variável `NIBO_TOKEN_<APELIDO>`:
+
+| Variável | Efeito |
+|---|---|
+| `NIBO_TOKEN_DRA_CAMILA` | cria a empresa `dra-camila` com esse token |
+| `NIBO_NOME_DRA_CAMILA` | (opcional) nome exibido |
+| `NIBO_ESCRITA_DRA_CAMILA=1` | (opcional) libera escrita nessa empresa |
+| `NIBO_PADRAO=dra-camila` | (opcional) empresa padrão quando não houver arquivo |
+
+Underscore no nome da variável vira hífen no apelido. Se o mesmo apelido existir no arquivo,
+**o arquivo prevalece**. Empresas vindas do env nunca são gravadas no `empresas.json`, e
+`listar_empresas` mostra `"origem": "env"` para elas.
+
 ---
 
 ## Instalação
@@ -79,7 +105,7 @@ dentro de `mcpServers`:
 }
 ```
 
-Note que **não há token aqui**. Se quiser guardar o cadastro em outro lugar (rede, pasta de equipe),
+Note que **não há token aqui**. Se quiser guardar o cadastro em outro lugar (pasta na nuvem, rede),
 acrescente `"NIBO_EMPRESAS_FILE": "C:\\caminho\\empresas.json"` no `env`.
 
 > Se `python` não for encontrado, use o caminho completo do executável.

@@ -16,8 +16,16 @@ CADASTRO DE EMPRESAS (fora do código, para o repositório ser compartilhável):
 
   O arquivo é lido A CADA CHAMADA: incluir/remover empresa vale na hora, sem reiniciar.
 
+  Para usar o MESMO cadastro em várias máquinas, guarde o empresas.json numa pasta
+  sincronizada (OneDrive, Google Drive, Dropbox) e aponte NIBO_EMPRESAS_FILE para ela.
+
 Env:
   NIBO_EMPRESAS_FILE -> caminho do cadastro (opcional)
+  NIBO_TOKEN_<APELIDO> -> token de uma empresa via variável de ambiente (ex.: em
+                        sessões na nuvem, onde não há arquivo). Ex.: NIBO_TOKEN_DRA_CAMILA
+                        vira a empresa "dra-camila". Opcionais: NIBO_NOME_<APELIDO> e
+                        NIBO_ESCRITA_<APELIDO>=1. Se o apelido também estiver no arquivo,
+                        o arquivo prevalece. Nunca são gravadas no arquivo.
   NIBO_API_TOKEN     -> compatibilidade: se não houver cadastro, vira a empresa "padrao"
   NIBO_ALLOW_WRITE   -> "1" é a chave-mestra da escrita (default bloqueado)
 
@@ -118,17 +126,49 @@ mcp = FastMCP("nibo")
 
 
 # ----------------- cadastro de empresas -----------------
+_ENV_TOKEN = re.compile(r"^NIBO_TOKEN_([A-Z0-9_]+)$")
+
+
+def _empresas_do_env() -> dict:
+    """Empresas definidas por NIBO_TOKEN_<APELIDO> (útil em máquinas/sessões sem arquivo)."""
+    saida = {}
+    for var, valor in os.environ.items():
+        m = _ENV_TOKEN.match(var)
+        if not m or not valor.strip():
+            continue
+        sufixo = m.group(1)
+        apelido = sufixo.lower().replace("_", "-")
+        if not APELIDO_OK.match(apelido):
+            continue
+        saida[apelido] = {
+            "nome": os.environ.get(f"NIBO_NOME_{sufixo}", "").strip() or f"(env: {var})",
+            "token": valor.strip(),
+            "escrita": os.environ.get(f"NIBO_ESCRITA_{sufixo}", "0").strip() == "1",
+            "_do_env": True,
+        }
+    return saida
+
+
 def _carregar() -> dict:
-    """Lê o cadastro do disco. Sem cache: alterações valem na chamada seguinte."""
+    """Lê o cadastro do disco + env. Sem cache: alterações valem na chamada seguinte."""
+    do_env = _empresas_do_env()
     arquivo = _cadastro_existente()
     if arquivo:
         try:
             dados = json.loads(arquivo.read_text(encoding="utf-8"))
         except Exception as e:
             return {"padrao": "", "empresas": {}, "_erro": f"{arquivo} inválido: {e}"}
-        empresas = dados.get("empresas") or {}
+        empresas = {**do_env, **(dados.get("empresas") or {})}  # arquivo prevalece
+        origem = str(arquivo) + (" + variáveis NIBO_TOKEN_*" if do_env else "")
         return {"padrao": (dados.get("padrao") or "").strip(), "empresas": empresas,
-                "_origem": str(arquivo)}
+                "_origem": origem}
+
+    if do_env:
+        padrao = os.environ.get("NIBO_PADRAO", "").strip().lower()
+        if padrao not in do_env:
+            padrao = sorted(do_env)[0] if len(do_env) == 1 else ""
+        return {"padrao": padrao, "empresas": do_env,
+                "_origem": "variáveis NIBO_TOKEN_* (nenhum empresas.json encontrado)"}
 
     # compatibilidade com a instalação antiga de token único.
     # Marcado como fallback para não mascarar um cadastro que o servidor não achou.
@@ -147,7 +187,9 @@ def _salvar(cfg: dict) -> None:
     destino = _cadastro_destino()
     destino.parent.mkdir(parents=True, exist_ok=True)
     tmp = destino.with_suffix(".json.tmp")
-    corpo = {"padrao": cfg.get("padrao", ""), "empresas": cfg.get("empresas", {})}
+    # empresas vindas do env não são gravadas (o token ficaria copiado no arquivo)
+    empresas = {k: v for k, v in cfg.get("empresas", {}).items() if not v.get("_do_env")}
+    corpo = {"padrao": cfg.get("padrao", ""), "empresas": empresas}
     tmp.write_text(json.dumps(corpo, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(destino)
 
@@ -279,7 +321,8 @@ def listar_empresas() -> dict:
             {"apelido": k,
              "nome": v.get("nome", ""),
              "escrita": bool(v.get("escrita", False)),
-             "token": _mascarar(v.get("token", ""))}
+             "token": _mascarar(v.get("token", "")),
+             "origem": "env" if v.get("_do_env") else "arquivo"}
             for k, v in sorted(cfg["empresas"].items())
         ],
     }
@@ -334,6 +377,9 @@ def remover_empresa(apelido: str, confirmar: bool = False) -> dict:
     if apelido not in cfg["empresas"]:
         return {"erro": f"Empresa '{apelido}' não cadastrada.",
                 "empresas_disponiveis": sorted(cfg["empresas"])}
+    if cfg["empresas"][apelido].get("_do_env"):
+        return {"erro": f"Empresa '{apelido}' vem de variável de ambiente; remova a variável "
+                        f"NIBO_TOKEN_{apelido.upper().replace('-', '_')} no config do MCP."}
     if not confirmar:
         return {"aviso": "Não executado. Reenvie com confirmar=true.",
                 "removeria": apelido, "nome": cfg["empresas"][apelido].get("nome", "")}
@@ -371,6 +417,9 @@ def definir_escrita_empresa(apelido: str, permitir: bool, confirmar: bool = Fals
     if apelido not in cfg["empresas"]:
         return {"erro": f"Empresa '{apelido}' não cadastrada.",
                 "empresas_disponiveis": sorted(cfg["empresas"])}
+    if cfg["empresas"][apelido].get("_do_env"):
+        return {"erro": f"Empresa '{apelido}' vem de variável de ambiente; defina "
+                        f"NIBO_ESCRITA_{apelido.upper().replace('-', '_')}=1 no config do MCP."}
     if not confirmar:
         return {"aviso": "Não executado. Reenvie com confirmar=true.",
                 "empresa": apelido, "nome": cfg["empresas"][apelido].get("nome", ""),
