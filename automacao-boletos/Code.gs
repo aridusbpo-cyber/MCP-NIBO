@@ -5,7 +5,8 @@
  * e qualquer outro remetente), salva na pasta "03. Contas a Pagar" do cliente
  * (subpasta do mês de vencimento), renomeia no padrão
  *     DD.MM.AAAA FORNECEDOR R$ 0.000,00.pdf
- * e envia um e-mail de alerta com o que foi programado e o que ficou pendente.
+ * marca o e-mail como processado e envia um e-mail de alerta com o que foi
+ * programado e o que ficou pendente.
  *
  * Instalação: veja LEIA-ME.md nesta pasta.
  */
@@ -16,10 +17,10 @@ var CONFIG = {
   // Quem recebe o relatório de alerta.
   EMAIL_RELATORIO: 'aridusbpo@gmail.com',
 
-  // Busca no Gmail. Só e-mails com PDF dos últimos 3 dias que ainda não foram
-  // processados (o rótulo abaixo é aplicado depois de processar).
-  BUSCA_GMAIL: 'has:attachment filename:pdf newer_than:3d -in:sent ' +
-               '-label:CP-Processado -label:CP-Pendente',
+  // Busca no Gmail: e-mails com PDF dos últimos 3 dias. Cada mensagem é
+  // processada uma única vez (o script guarda o ID dela), então uma resposta
+  // nova dentro de uma conversa antiga também é lida.
+  BUSCA_GMAIL: 'has:attachment filename:pdf newer_than:3d -in:sent',
 
   ROTULO_PROCESSADO: 'CP-Processado',
   ROTULO_PENDENTE: 'CP-Pendente',
@@ -37,6 +38,12 @@ var CONFIG = {
   PALAVRAS_IGNORAR: ['FOLHA', 'RECIBO', 'HOLERITE', 'CONTRACHEQUE', 'EXTRATO',
                      'RELATORIO', 'RELATÓRIO', 'CONTRATO', 'NOTA FISCAL', 'NFS',
                      'DANFE', 'COMPROVANTE', 'BALANCETE', 'DRE'],
+
+  // Mapeamento cliente -> pasta. Duas opções (veja o LEIA-ME):
+  //  a) Planilha: coloque aqui o ID (ou o link) da planilha de clientes.
+  //     Rode criarPlanilhaDeClientes() uma vez para gerar uma já preenchida.
+  //  b) Deixe vazio e use a lista CLIENTES logo abaixo.
+  PLANILHA_CLIENTES_ID: '',
 
   // Cliente -> pasta "03. Contas a Pagar" no Drive + palavras que identificam
   // o cliente no assunto, no nome do arquivo ou no texto do PDF (nome, CNPJ...).
@@ -67,7 +74,14 @@ var CONFIG = {
   // Salvar dentro da subpasta do mês do vencimento ("10. Outubro 2026").
   USAR_SUBPASTA_MES: true,
 
-  HORA_EXECUCAO: 7 // hora do dia (fuso do projeto) para a execução diária
+  HORA_EXECUCAO: 7, // hora do dia (fuso do projeto) para a execução diária
+
+  // O Google encerra o script em 6 min. Para antes disso; o que sobrar fica
+  // para a próxima execução (a busca cobre 3 dias).
+  LIMITE_MINUTOS: 5,
+
+  // Por quantos dias o script lembra das mensagens já processadas.
+  DIAS_MEMORIA: 30
 };
 
 var MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho',
@@ -82,90 +96,130 @@ function instalarAgendamentoDiario() {
   });
   ScriptApp.newTrigger('processarBoletos').timeBased()
     .everyDays(1).atHour(CONFIG.HORA_EXECUCAO).create();
+  console.log('Agendado: todo dia às ' + CONFIG.HORA_EXECUCAO + 'h.');
 }
 
 /** Rotina principal (chamada pelo agendamento diário ou manualmente). */
 function processarBoletos() {
+  var inicio = Date.now();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) { console.log('Já existe uma execução em andamento.'); return; }
+  try {
+    processar_(inicio);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function processar_(inicio) {
+  var clientes = carregarClientes_();
+  var memoria = PropertiesService.getScriptProperties();
+  limparMemoria_(memoria);
   var rotOk = obterRotulo_(CONFIG.ROTULO_PROCESSADO);
   var rotPend = obterRotulo_(CONFIG.ROTULO_PENDENTE);
   var programados = [];
   var pendentes = [];
+  var interrompido = false;
 
   var threads = GmailApp.search(CONFIG.BUSCA_GMAIL, 0, 100);
-  threads.forEach(function (thread) {
+  for (var t = 0; t < threads.length && !interrompido; t++) {
+    var thread = threads[t];
+    var salvos = 0;
     var temPendencia = false;
-    thread.getMessages().forEach(function (msg) {
-      var remetente = msg.getFrom();
-      var assunto = msg.getSubject();
-      var confiavel = CONFIG.REMETENTES_CONFIAVEIS.some(function (r) {
-        return remetente.toLowerCase().indexOf(r) >= 0;
-      });
+    var msgs = thread.getMessages();
 
-      msg.getAttachments({ includeInlineImages: false }).forEach(function (anexo) {
-        var nomeArq = anexo.getName();
-        if (!/\.pdf$/i.test(nomeArq)) return;
-        var classe = classificarArquivo(nomeArq, assunto, confiavel);
-        if (classe === 'ignorar') return;
+    for (var m = 0; m < msgs.length; m++) {
+      var msg = msgs[m];
+      var chave = 'msg:' + msg.getId();
+      if (memoria.getProperty(chave)) continue;
+      // A busca traz a conversa inteira; mensagens antigas dela ficam de fora.
+      if (msg.getDate().getTime() < inicio - 4 * 86400000) continue;
+      if (Date.now() - inicio > CONFIG.LIMITE_MINUTOS * 60000) { interrompido = true; break; }
 
-        try {
-          var texto = extrairTextoPdf_(anexo);
-          var dados = extrairDados(texto, nomeArq, assunto, remetente);
-          // Remetente desconhecido + nome genérico: só entra se o PDF tiver
-          // linha digitável (é de fato um boleto/guia).
-          if (classe === 'talvez' && !dados.temCodigo) return;
+      var r = processarMensagem_(msg, clientes);
+      programados = programados.concat(r.programados);
+      pendentes = pendentes.concat(r.pendentes);
+      salvos += r.programados.length + r.pendentes.length;
+      if (r.pendentes.length) temPendencia = true;
+      memoria.setProperty(chave, String(Date.now()));
+    }
+    if (temPendencia) thread.addLabel(rotPend);
+    else if (salvos) thread.addLabel(rotOk);
+  }
 
-          var cliente = identificarCliente(assunto + ' ' + nomeArq + ' ' + texto);
-          var registro = {
-            cliente: cliente ? cliente.nome : '(não identificado)',
-            fornecedor: dados.fornecedor,
-            vencimento: dados.vencimento,
-            valor: dados.valor,
-            original: nomeArq,
-            assunto: assunto,
-            remetente: remetente,
-            link: ''
-          };
+  if (programados.length || pendentes.length || interrompido) {
+    enviarRelatorio_(programados, pendentes, interrompido);
+  }
+  console.log('Programados: ' + programados.length + ' | Pendentes: ' + pendentes.length +
+              (interrompido ? ' | interrompido por tempo' : ''));
+}
 
-          var faltando = [];
-          if (!cliente) faltando.push('cliente');
-          if (!dados.vencimento) faltando.push('vencimento');
-          if (dados.valor === null) faltando.push('valor');
-
-          var pasta = cliente
-            ? pastaDestino_(cliente.pastaId, dados.vencimento)
-            : pastaAClassificar_();
-          var novoNome = montarNome(dados.vencimento, dados.fornecedor, dados.valor);
-
-          var existente = pasta.getFilesByName(novoNome);
-          var arquivo = existente.hasNext()
-            ? existente.next()
-            : pasta.createFile(anexo.copyBlob().setName(novoNome));
-          registro.link = arquivo.getUrl();
-          registro.novoNome = novoNome;
-          registro.pasta = pasta.getName();
-
-          if (faltando.length) {
-            registro.motivo = 'Não consegui ler: ' + faltando.join(', ');
-            pendentes.push(registro);
-            temPendencia = true;
-          } else {
-            programados.push(registro);
-          }
-        } catch (e) {
-          pendentes.push({ cliente: '-', fornecedor: '-', vencimento: null,
-            valor: null, original: nomeArq, assunto: assunto, remetente: remetente,
-            link: '', motivo: 'Erro: ' + e.message });
-          temPendencia = true;
-        }
-      });
-    });
-    thread.addLabel(temPendencia ? rotPend : rotOk);
+function processarMensagem_(msg, clientes) {
+  var out = { programados: [], pendentes: [] };
+  var remetente = msg.getFrom();
+  var assunto = msg.getSubject();
+  var confiavel = CONFIG.REMETENTES_CONFIAVEIS.some(function (r) {
+    return remetente.toLowerCase().indexOf(r.toLowerCase()) >= 0;
   });
 
-  if (programados.length || pendentes.length) {
-    enviarRelatorio_(programados, pendentes);
-  }
-  console.log('Programados: ' + programados.length + ' | Pendentes: ' + pendentes.length);
+  msg.getAttachments({ includeInlineImages: false }).forEach(function (anexo) {
+    var nomeArq = anexo.getName();
+    if (!/\.pdf$/i.test(nomeArq)) return;
+    var classe = classificarArquivo(nomeArq, assunto, confiavel);
+    if (classe === 'ignorar') return;
+
+    try {
+      var texto = extrairTextoPdf_(anexo);
+      var dados = extrairDados(texto, nomeArq, assunto, remetente);
+      // Remetente desconhecido + nome genérico: só entra se o PDF tiver
+      // linha digitável válida (é de fato um boleto/guia).
+      if (classe === 'talvez' && !dados.temCodigo) return;
+
+      var cliente = identificarCliente(assunto + ' ' + nomeArq, texto, clientes);
+      var registro = {
+        cliente: cliente ? cliente.nome : '(não identificado)',
+        fornecedor: dados.fornecedor,
+        vencimento: dados.vencimento,
+        valor: dados.valor,
+        original: nomeArq,
+        assunto: assunto,
+        remetente: remetente,
+        link: ''
+      };
+
+      var faltando = [];
+      if (!cliente) faltando.push('cliente');
+      if (!dados.vencimento) faltando.push('vencimento');
+      if (dados.valor === null) faltando.push('valor');
+
+      var pasta = cliente
+        ? pastaDestino_(cliente.pastaId, dados.vencimento)
+        : pastaAClassificar_();
+      var novoNome = montarNome(dados.vencimento, dados.fornecedor, dados.valor,
+                                faltando.length ? nomeArq : null);
+
+      // Mesmo nome = mesmo documento (reenvio): não duplica.
+      var existente = pasta.getFilesByName(novoNome);
+      var arquivo = existente.hasNext()
+        ? existente.next()
+        : pasta.createFile(anexo.copyBlob().setName(novoNome));
+      registro.link = arquivo.getUrl();
+      registro.novoNome = novoNome;
+      registro.pasta = pasta.getName();
+
+      if (faltando.length) {
+        registro.motivo = 'Não consegui ler: ' + faltando.join(', ');
+        out.pendentes.push(registro);
+      } else {
+        out.programados.push(registro);
+      }
+    } catch (e) {
+      out.pendentes.push({ cliente: '-', fornecedor: '-', vencimento: null,
+        valor: null, original: nomeArq, assunto: assunto, remetente: remetente,
+        link: '', motivo: 'Erro: ' + e.message });
+    }
+  });
+  return out;
 }
 
 // ============================== REGRAS (funções puras) ==============================
@@ -175,13 +229,22 @@ function normalizar(s) {
     .normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
 
+function escaparRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&');
+}
+
+/** true se a palavra/expressão aparece inteira (não como pedaço de outra). */
+function contemTermo(textoNormalizado, termo) {
+  var t = normalizar(termo).trim();
+  if (!t) return false;
+  return new RegExp('(^|[^A-Z0-9])' + escaparRegex(t) + '([^A-Z0-9]|$)').test(textoNormalizado);
+}
+
 /** 'sim' = conta a pagar | 'ignorar' = não é | 'talvez' = decidir pelo conteúdo */
 function classificarArquivo(nomeArq, assunto, remetenteConfiavel) {
-  var n = normalizar(nomeArq);
+  var n = normalizar(nomeArq.replace(/\.pdf$/i, '').replace(/[_\-.]+/g, ' '));
   var contem = function (lista) {
-    return lista.some(function (p) {
-      return new RegExp('(^|[^A-Z])' + normalizar(p) + '([^A-Z]|$)').test(n);
-    });
+    return lista.some(function (p) { return contemTermo(n, p); });
   };
   if (contem(CONFIG.PALAVRAS_IGNORAR)) return 'ignorar';
   if (contem(CONFIG.PALAVRAS_PAGAVEL)) return 'sim';
@@ -189,29 +252,81 @@ function classificarArquivo(nomeArq, assunto, remetenteConfiavel) {
   return remetenteConfiavel ? 'sim' : 'talvez';
 }
 
-function identificarCliente(texto) {
-  var t = normalizar(texto);
-  for (var i = 0; i < CONFIG.CLIENTES.length; i++) {
-    var c = CONFIG.CLIENTES[i];
-    for (var j = 0; j < c.chaves.length; j++) {
-      if (t.indexOf(normalizar(c.chaves[j])) >= 0) return c;
+/**
+ * Procura o cliente primeiro no assunto + nome do arquivo (mais confiável) e,
+ * se não achar, no texto do PDF. Vale o primeiro cliente da lista que bater.
+ */
+function identificarCliente(cabecalho, textoPdf, clientes) {
+  clientes = clientes || CONFIG.CLIENTES;
+  var fontes = [normalizar(cabecalho), normalizar(textoPdf)];
+  for (var f = 0; f < fontes.length; f++) {
+    for (var i = 0; i < clientes.length; i++) {
+      var c = clientes[i];
+      for (var j = 0; j < c.chaves.length; j++) {
+        if (contemTermo(fontes[f], c.chaves[j])) return c;
+      }
     }
   }
   return null;
+}
+
+/** Dígito verificador módulo 10 (pesos 2,1,2,1... da direita para a esquerda). */
+function modulo10(num) {
+  var soma = 0, peso = 2;
+  for (var i = num.length - 1; i >= 0; i--) {
+    var p = parseInt(num.charAt(i), 10) * peso;
+    soma += p > 9 ? Math.floor(p / 10) + (p % 10) : p;
+    peso = peso === 2 ? 1 : 2;
+  }
+  var r = soma % 10;
+  return r === 0 ? 0 : 10 - r;
+}
+
+/** Módulo 11 da arrecadação (pesos 2..9; resto 0 ou 1 => DV 0). */
+function modulo11Arrecadacao(num) {
+  var soma = 0, peso = 2;
+  for (var i = num.length - 1; i >= 0; i--) {
+    soma += parseInt(num.charAt(i), 10) * peso;
+    peso = peso === 9 ? 2 : peso + 1;
+  }
+  var r = soma % 11;
+  return (r === 0 || r === 1) ? 0 : 11 - r;
+}
+
+/** Linha digitável de boleto bancário (47 dígitos): confere os 3 DVs dos campos. */
+function boletoValido(d) {
+  if (!/^\d{47}$/.test(d)) return false;
+  return modulo10(d.substr(0, 9)) === +d.charAt(9) &&
+         modulo10(d.substr(10, 10)) === +d.charAt(20) &&
+         modulo10(d.substr(21, 10)) === +d.charAt(31);
+}
+
+/** Linha digitável de arrecadação/guia (48 dígitos, começa com 8): confere os 4 DVs. */
+function arrecadacaoValida(d) {
+  if (!/^8\d{47}$/.test(d)) return false;
+  var id = d.charAt(2);
+  var dv = (id === '6' || id === '7') ? modulo10
+         : (id === '8' || id === '9') ? modulo11Arrecadacao : null;
+  if (!dv) return false;
+  for (var b = 0; b < 4; b++) {
+    if (dv(d.substr(b * 12, 11)) !== +d.charAt(b * 12 + 11)) return false;
+  }
+  return true;
 }
 
 /**
  * Boleto bancário (47 dígitos). Os 14 últimos = fator de vencimento (4) + valor (10).
  * Desde 22/02/2025 o fator reiniciou em 1000 (regra Febraban).
  */
-function lerBoletoBancario(digitos) {
+function lerBoletoBancario(digitos, hoje) {
+  hoje = hoje || new Date();
   var fator = parseInt(digitos.substr(33, 4), 10);
   var valor = parseInt(digitos.substr(37, 10), 10) / 100;
   var venc = null;
   if (fator >= 1000) {
     venc = new Date(Date.UTC(2025, 1, 22) + (fator - 1000) * 86400000);
-    // Fatores do ciclo antigo (antes de 22/02/2025) caem muito no futuro.
-    if (venc.getUTCFullYear() > new Date().getUTCFullYear() + 10) venc = null;
+    // Fator do ciclo antigo (antes de 22/02/2025) cai muito no futuro: descarta.
+    if (venc.getUTCFullYear() > hoje.getUTCFullYear() + 5) venc = null;
   }
   return { valor: valor > 0 ? valor : null, vencimento: venc };
 }
@@ -231,24 +346,34 @@ function lerArrecadacao(digitos) {
   return { valor: valor > 0 ? valor : null, vencimento: null };
 }
 
+/**
+ * Acha a linha digitável no texto do PDF. Só aceita sequências com dígitos
+ * verificadores corretos, então números soltos (CNPJ, nosso número) não passam.
+ */
 function acharCodigo(texto) {
-  // Boleto: 5.5 5.6 5.6 1 14
-  var mb = texto.match(/(\d{5})[.\s]?(\d{5})\s+(\d{5})[.\s]?(\d{6})\s+(\d{5})[.\s]?(\d{6})\s+(\d)\s+(\d{14})/);
-  if (mb) return { tipo: 'boleto', digitos: mb.slice(1).join('') };
-  // Arrecadação: 4 blocos de 11 dígitos + DV, começa com 8
-  var ma = texto.match(/(8\d{10})[\s-]*(\d)\s+(\d{11})[\s-]*(\d)\s+(\d{11})[\s-]*(\d)\s+(\d{11})[\s-]*(\d)/);
-  if (ma) return { tipo: 'arrecadacao', digitos: ma.slice(1).join('') };
-  var so = texto.replace(/[^\d\n ]/g, '').match(/\b8\d{47}\b/);
-  if (so) return { tipo: 'arrecadacao', digitos: so[0] };
-  var sb = texto.replace(/[.\s]/g, '').match(/\d{47}/);
-  if (sb && sb[0].charAt(0) !== '8') return { tipo: 'boleto', digitos: sb[0] };
+  var linhas = String(texto || '').split(/\n/);
+  // 1) linha a linha; 2) texto inteiro (OCR às vezes quebra a linha digitável)
+  var blocos = linhas.concat([linhas.join(' ')]);
+  for (var b = 0; b < blocos.length; b++) {
+    var corridas = blocos[b].replace(/[.\-\s]/g, '').match(/\d{47,}/g) || [];
+    for (var c = 0; c < corridas.length; c++) {
+      var s = corridas[c];
+      for (var i = 0; i + 47 <= s.length; i++) {
+        var d48 = s.substr(i, 48);
+        if (d48.length === 48 && arrecadacaoValida(d48)) return { tipo: 'arrecadacao', digitos: d48 };
+        var d47 = s.substr(i, 47);
+        if (d47.charAt(0) !== '8' && boletoValido(d47)) return { tipo: 'boleto', digitos: d47 };
+      }
+    }
+  }
   return null;
 }
 
 function parseDataBR(s) {
   var m = String(s).match(/(\d{2})\/(\d{2})\/(\d{4})/);
   if (!m) return null;
-  return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+  var d = new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+  return (d.getUTCMonth() === +m[2] - 1) ? d : null;
 }
 
 function parseValorBR(s) {
@@ -257,12 +382,12 @@ function parseValorBR(s) {
 }
 
 function vencimentoDoTexto(texto) {
-  var m = texto.match(/(?:VENCIMENTO|VENCTO|PAGAR AT[ÉE]|PAGAVEL AT[ÉE]|DATA DE VENC\w*|VALIDADE)[^\d]{0,40}(\d{2}\/\d{2}\/\d{4})/i);
+  var m = normalizar(texto).match(/(?:VENCIMENTO|VENCTO|PAGAR (?:ESTE DOCUMENTO )?ATE|PAGAVEL ATE|DATA DE VENC\w*|VALIDADE)[^\d]{0,40}(\d{2}\/\d{2}\/\d{4})/);
   return m ? parseDataBR(m[1]) : null;
 }
 
 function valorDoTexto(texto) {
-  var m = texto.match(/(?:VALOR (?:DO DOCUMENTO|COBRADO|TOTAL|A PAGAR|A RECOLHER)|TOTAL A (?:PAGAR|RECOLHER)|\(=\) ?VALOR)[^\d]{0,40}(\d{1,3}(?:\.\d{3})*,\d{2})/i);
+  var m = normalizar(texto).match(/(?:VALOR (?:DO DOCUMENTO|COBRADO|TOTAL|A PAGAR|A RECOLHER)|TOTAL A (?:PAGAR|RECOLHER)|\(=\) ?VALOR)[^\d]{0,40}(\d{1,3}(?:\.\d{3})*,\d{2})/);
   return m ? parseValorBR(m[1]) : null;
 }
 
@@ -270,7 +395,7 @@ function fornecedorDoTexto(texto, nomeArq, remetente) {
   var t = normalizar(texto + ' ' + nomeArq);
   if (/DOCUMENTO DE ARRECADACAO DO SIMPLES|\bDAS\b|PGDAS/.test(t)) return 'DAS SIMPLES NACIONAL';
   if (/\bDARF\b|DOCUMENTO DE ARRECADACAO DE RECEITAS FEDERAIS/.test(t)) return 'DARF';
-  if (/\bFGTS\b|GFD|GUIA DO FGTS/.test(t)) return 'FGTS';
+  if (/\bFGTS\b|\bGFD\b|GUIA DO FGTS/.test(t)) return 'FGTS';
   if (/\bGPS\b|PREVIDENCIA SOCIAL|\bINSS\b/.test(t)) return 'INSS GPS';
   if (/\bDAE\b/.test(t)) return 'DAE ESTADUAL';
   if (/\bDAM\b|\bISS\b/.test(t)) return 'ISS MUNICIPAL';
@@ -287,7 +412,7 @@ function fornecedorDoTexto(texto, nomeArq, remetente) {
     }
   }
   var nomeRem = String(remetente || '').replace(/<.*>/, '').replace(/"/g, '').trim();
-  return limparNome(nomeRem || nomeArq.replace(/\.pdf$/i, ''));
+  return limparNome(nomeRem || nomeArq.replace(/\.pdf$/i, '')) || 'FORNECEDOR';
 }
 
 function limparNome(s) {
@@ -305,7 +430,8 @@ function extrairDados(texto, nomeArq, assunto, remetente) {
               : { valor: null, vencimento: null };
   return {
     temCodigo: !!cod,
-    vencimento: vencimentoDoTexto(texto) || r.vencimento,
+    // Boleto: a linha digitável é a fonte mais confiável; guia: só o texto.
+    vencimento: r.vencimento || vencimentoDoTexto(texto),
     valor: r.valor !== null ? r.valor : valorDoTexto(texto),
     fornecedor: fornecedorDoTexto(texto, nomeArq, remetente)
   };
@@ -321,13 +447,21 @@ function formatarData(d) {
   return p(d.getUTCDate()) + '.' + p(d.getUTCMonth() + 1) + '.' + d.getUTCFullYear();
 }
 
-/** Padrão do escritório: "01.10.2026 SIN IMPLANT R$ 528,96.pdf" */
-function montarNome(venc, fornecedor, valor) {
-  return (venc ? formatarData(venc) : 'SEM DATA') + ' ' + fornecedor + ' R$ ' +
-         (valor !== null ? formatarValor(valor) : 'SEM VALOR') + '.pdf';
+/**
+ * Padrão do escritório: "01.10.2026 SIN IMPLANT R$ 528,96.pdf".
+ * Se faltou algum dado, acrescenta o nome original para dois documentos
+ * incompletos do mesmo fornecedor não ficarem com o mesmo nome.
+ */
+function montarNome(venc, fornecedor, valor, nomeOriginal) {
+  var nome = (venc ? formatarData(venc) : 'SEM DATA') + ' ' + fornecedor + ' R$ ' +
+             (valor !== null ? formatarValor(valor) : 'SEM VALOR');
+  if (nomeOriginal) {
+    nome += ' (' + nomeOriginal.replace(/\.pdf$/i, '').replace(/[\\\/:*?"<>|]/g, ' ').trim() + ')';
+  }
+  return nome + '.pdf';
 }
 
-// ============================== GOOGLE (Drive/Gmail) ==============================
+// ============================== GOOGLE (Drive/Gmail/Sheets) ==============================
 
 /** Converte o PDF num Google Doc temporário (OCR) só para ler o texto. */
 function extrairTextoPdf_(anexo) {
@@ -340,6 +474,52 @@ function extrairTextoPdf_(anexo) {
   } finally {
     Drive.Files.remove(doc.id);
   }
+}
+
+/** Lê o mapeamento da planilha (se configurada) ou da lista CONFIG.CLIENTES. */
+function carregarClientes_() {
+  if (!CONFIG.PLANILHA_CLIENTES_ID) return CONFIG.CLIENTES;
+  var linhas = SpreadsheetApp.openById(extrairId(CONFIG.PLANILHA_CLIENTES_ID))
+    .getSheets()[0].getDataRange().getDisplayValues();
+  return clientesDaPlanilha(linhas);
+}
+
+/** Linhas da planilha (com cabeçalho) -> lista de clientes. Ignora linhas incompletas. */
+function clientesDaPlanilha(linhas) {
+  var out = [];
+  for (var i = 1; i < linhas.length; i++) {
+    var nome = String(linhas[i][0] || '').trim();
+    var pasta = extrairId(linhas[i][1]);
+    var chaves = String(linhas[i][2] || '').split(/[;\n]/)
+      .map(function (s) { return s.trim(); }).filter(String);
+    if (nome && pasta) out.push({ nome: nome, pastaId: pasta, chaves: chaves.length ? chaves : [nome] });
+  }
+  return out;
+}
+
+/** Aceita o ID puro ou o link do Drive/Planilhas e devolve só o ID. */
+function extrairId(s) {
+  s = String(s || '').trim();
+  var m = s.match(/\/(?:folders|d)\/([\w-]{10,})/) || s.match(/[?&]id=([\w-]{10,})/);
+  return m ? m[1] : s;
+}
+
+/** Rode UMA vez se quiser gerenciar os clientes numa planilha. */
+function criarPlanilhaDeClientes() {
+  var ss = SpreadsheetApp.create('Automação CP — Clientes e pastas');
+  var aba = ss.getSheets()[0];
+  aba.setName('Clientes');
+  var linhas = [['Cliente', 'Pasta "03. Contas a Pagar" (link ou ID)',
+                 'Palavras que identificam o cliente (separe com ;)']];
+  CONFIG.CLIENTES.forEach(function (c) {
+    linhas.push([c.nome, 'https://drive.google.com/drive/folders/' + c.pastaId, c.chaves.join('; ')]);
+  });
+  aba.getRange(1, 1, linhas.length, 3).setValues(linhas);
+  aba.getRange(1, 1, 1, 3).setFontWeight('bold');
+  aba.setFrozenRows(1);
+  aba.autoResizeColumns(1, 3);
+  console.log('Planilha criada. Copie este ID para CONFIG.PLANILHA_CLIENTES_ID: ' + ss.getId());
+  console.log(ss.getUrl());
 }
 
 function pastaDestino_(pastaCpId, venc) {
@@ -366,9 +546,25 @@ function obterRotulo_(nome) {
   return GmailApp.getUserLabelByName(nome) || GmailApp.createLabel(nome);
 }
 
-function enviarRelatorio_(programados, pendentes) {
-  var hoje = formatarData(new Date(Date.UTC(new Date().getFullYear(),
-    new Date().getMonth(), new Date().getDate())));
+/** Esquece mensagens processadas há mais de DIAS_MEMORIA dias. */
+function limparMemoria_(memoria) {
+  var limite = Date.now() - CONFIG.DIAS_MEMORIA * 86400000;
+  var props = memoria.getProperties();
+  Object.keys(props).forEach(function (k) {
+    if (k.indexOf('msg:') === 0 && +props[k] < limite) memoria.deleteProperty(k);
+  });
+}
+
+/** Para reprocessar tudo dos últimos 3 dias (ex.: depois de mudar a configuração). */
+function esquecerMensagensProcessadas() {
+  var memoria = PropertiesService.getScriptProperties();
+  Object.keys(memoria.getProperties()).forEach(function (k) {
+    if (k.indexOf('msg:') === 0) memoria.deleteProperty(k);
+  });
+}
+
+function enviarRelatorio_(programados, pendentes, interrompido) {
+  var hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd.MM.yyyy');
   var total = programados.reduce(function (s, r) { return s + (r.valor || 0); }, 0);
   var linha = function (r, extra) {
     return '<tr><td>' + esc_(r.cliente) + '</td><td>' + esc_(r.fornecedor) +
@@ -393,10 +589,14 @@ function enviarRelatorio_(programados, pendentes) {
       '<th>Motivo</th></tr>' + pendentes.map(function (r) { return linha(r, true); }).join('') +
       '</table><p>Os e-mails ficaram com o rótulo <b>' + CONFIG.ROTULO_PENDENTE + '</b>.</p>';
   }
+  if (interrompido) {
+    html += '<p style="color:#b60"><b>A execução parou por tempo.</b> O restante será ' +
+            'processado na próxima execução (ou rode processarBoletos manualmente).</p>';
+  }
   html += '<p style="color:#888">Valores e datas foram lidos automaticamente do PDF ' +
           '(linha digitável/texto). Confira antes de pagar.</p>';
 
-  var assunto = (pendentes.length ? '⚠ ' : '✅ ') + 'CP ' + hoje + ': ' +
+  var assunto = (pendentes.length || interrompido ? '⚠ ' : '✅ ') + 'CP ' + hoje + ': ' +
     programados.length + ' programado(s)' +
     (pendentes.length ? ', ' + pendentes.length + ' pendente(s)' : '');
   MailApp.sendEmail({ to: CONFIG.EMAIL_RELATORIO, subject: assunto, htmlBody: html });
@@ -406,10 +606,13 @@ function esc_(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Permite testar as funções puras fora do Google (node).
+// Permite testar as funções puras fora do Google (node teste.js).
 if (typeof module !== 'undefined') {
   module.exports = { CONFIG: CONFIG, classificarArquivo: classificarArquivo,
     identificarCliente: identificarCliente, lerBoletoBancario: lerBoletoBancario,
     lerArrecadacao: lerArrecadacao, acharCodigo: acharCodigo, extrairDados: extrairDados,
-    montarNome: montarNome, formatarValor: formatarValor };
+    montarNome: montarNome, formatarValor: formatarValor, modulo10: modulo10,
+    modulo11Arrecadacao: modulo11Arrecadacao, boletoValido: boletoValido,
+    arrecadacaoValida: arrecadacaoValida, clientesDaPlanilha: clientesDaPlanilha,
+    extrairId: extrairId, vencimentoDoTexto: vencimentoDoTexto, valorDoTexto: valorDoTexto };
 }
