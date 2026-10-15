@@ -3,3 +3,6 @@ empresas.json
 *.token
 .env
 __pycache__/
+
+# relatórios gerados com dados de clientes/pacientes — nunca versionar
+relatorios/
