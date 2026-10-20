@@ -3,11 +3,11 @@
 
 Regras (aprovadas pela cliente em 20/10/2026):
 - unidade = centro de custo do Nibo (CAJAZEIRAS-PB / TRIUNFO-PB); demais CCs ficam fora
-- área = categoria do Nibo (MAPA_AREAS); Prótese + Implante numa linha só
-- "Materiais Odontológicos" (2.405) em linha própria
-- "Despesas gerais" para o resto das despesas operacionais
-- data = data do pagamento; transferências e movimentações não operacionais excluídas
-- quadro Receita x Despesa x Resultado; receita = linha "TOTAL DO MÊS" do RESUMO
+- área = categoria do Nibo cujo nome corresponde à linha de receita do RESUMO
+  (mesma nomenclatura da planilha); Prótese + Implante numa linha só
+- "MATERIAIS ODONTOLOGICOS" (2.405) em linha própria
+- só categorias de área entram; o resto das despesas fica fora do quadro
+- data = data do pagamento; transferências ignoradas
 
 Uso:
     python despesas_dr_oral.py --ano 2026 --cajazeiras caj.xlsx --triunfo tri.xlsx [--saida-dir DIR]
@@ -18,7 +18,6 @@ import argparse
 import datetime as dt
 import json
 import os
-import re
 import urllib.parse
 import urllib.request
 from collections import defaultdict
@@ -32,21 +31,22 @@ FUSO_BR = dt.timezone(dt.timedelta(hours=-3))
 
 UNIDADES = {"cajazeiras": "CAJAZEIRAS-PB", "triunfo": "TRIUNFO-PB"}
 
-# Ordem = ordem das linhas no bloco. Casamento pelo código da categoria (prefixo do nome).
-MAPA_AREAS = [
-    ("HOF", ["2.402", "4.108"]),
-    ("CLÍNICO", ["2.409"]),
-    ("ORTO", ["2.411"]),
-    ("PRÓTESE + IMPLANTE", ["2.407", "2.410", "Compra de Material - Implantes"]),
-    ("LENTES/REC. ESTÉTICA", ["2.408"]),
-    ("MATERIAIS ODONTOLÓGICOS", ["2.405"]),
-]
-LINHA_GERAIS = "DESPESAS GERAIS"
+# Ordem = ordem das linhas no bloco; rótulos iguais aos do RESUMO de cada planilha.
+# Casamento pelo código da categoria (prefixo do nome).
+MAPA_AREAS = {
+    "cajazeiras": [
+        ("HOF", ["2.402", "4.108"]),
+        ("CLINICO", ["2.409"]),
+        ("ORTO", ["2.411"]),
+        ("PROTESE + IMPLANTE", ["2.407", "2.410", "Compra de Material - Implantes"]),
+        ("LENTES/REC. ESTETICA", ["2.408"]),
+        ("MATERIAIS ODONTOLOGICOS", ["2.405"]),
+    ],
+}
+MAPA_AREAS["triunfo"] = [("IMPLANTE + PROTESE", ch) if a == "PROTESE + IMPLANTE" else (a, ch)
+                         for a, ch in MAPA_AREAS["cajazeiras"]]
 
-# Fora do quadro: não operacional, devoluções de venda e ajustes.
-EXCLUIR = ["5.", "4.201", "2.201", "2.202", "Capitalização Sicredi", "AJUSTE SALDO CONTA"]
-
-MARCADOR = "DESPESAS NIBO POR ÁREA"
+MARCADOR = "DESPESAS POR CENTRO DE CUSTO"
 MESES = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
 
 
@@ -54,13 +54,11 @@ def _casa(nome: str, chaves) -> bool:
     return any(nome.strip().startswith(k) for k in chaves)
 
 
-def area_da_categoria(nome: str):
-    if _casa(nome, EXCLUIR):
-        return None
-    for area, chaves in MAPA_AREAS:
+def area_da_categoria(nome: str, unidade: str):
+    for area, chaves in MAPA_AREAS[unidade]:
         if _casa(nome, chaves):
             return area
-    return LINHA_GERAIS
+    return None
 
 
 def buscar_pagamentos(ano: int) -> list:
@@ -81,7 +79,7 @@ def buscar_pagamentos(ano: int) -> list:
 
 
 def agregar(pagamentos: list):
-    """{centro_de_custo: {area: [12 meses]}} + lista de pendências (sem CC de unidade)."""
+    """{unidade: {area: [12 meses]}} + pendências (categoria de área sem CC de unidade)."""
     tot = defaultdict(lambda: defaultdict(lambda: [0.0] * 12))
     pendencias = []
     for p in pagamentos:
@@ -90,8 +88,7 @@ def agregar(pagamentos: list):
         mes = int(p["date"][5:7]) - 1
         ccs = p.get("costCenters") or []
         for c in p["categories"]:
-            area = area_da_categoria(c["categoryName"])
-            if area is None:
+            if area_da_categoria(c["categoryName"], "cajazeiras") is None:
                 continue
             # categoria de entrada dentro de um pagamento (ex.: Descontos Recebidos) reduz a despesa
             valor = -c["value"] if c.get("type") == "in" else c["value"]
@@ -101,8 +98,9 @@ def agregar(pagamentos: list):
             for cc in ccs:
                 nome_cc = cc["costCenterDescription"]
                 parte = valor * cc["percent"] / 100
-                if nome_cc in UNIDADES.values():
-                    tot[nome_cc][area][mes] += parte
+                unidade = next((u for u, n in UNIDADES.items() if n == nome_cc), None)
+                if unidade:
+                    tot[unidade][area_da_categoria(c["categoryName"], unidade)][mes] += parte
                 elif nome_cc == "Não Identificado":
                     pendencias.append((p["date"][:10], c["categoryName"], nome_cc, parte,
                                        p.get("description") or ""))
@@ -117,7 +115,8 @@ def _linha_total_resumo(ws) -> int:
     raise ValueError("Linha 'TOTAL DO MÊS' não encontrada no RESUMO")
 
 
-def escrever_bloco(caminho_in: Path, caminho_out: Path, valores: dict, atualizado_em: str):
+def escrever_bloco(caminho_in: Path, caminho_out: Path, unidade: str, valores: dict,
+                   atualizado_em: str):
     wb = openpyxl.load_workbook(caminho_in)
     ws = wb["RESUMO"]
     lin_receita = _linha_total_resumo(ws)
@@ -168,47 +167,21 @@ def escrever_bloco(caminho_in: Path, caminho_out: Path, valores: dict, atualizad
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
     ws.cell(r, 1).fill, ws.cell(r, 1).font = azul, branco_neg
     r += 1
-    cabecalho(r, "ÁREA")
+    cabecalho(r, "CENTRO DE CUSTO")
     r += 1
     prim = r
-    for area in [a for a, _ in MAPA_AREAS] + [LINHA_GERAIS]:
+    for area, _ in MAPA_AREAS[unidade]:
         ws.cell(r, 1, area)
         for i, v in enumerate(valores.get(area, [0.0] * 12)):
             ws.cell(r, 2 + i, round(v, 2))
         ws.cell(r, 14, f"=SUM(B{r}:M{r})")
         formatar_linha(r)
         r += 1
-    lin_desp = r
-    ws.cell(r, 1, "TOTAL DESPESAS")
+    ws.cell(r, 1, "TOTAL DESPESAS DO MÊS")
     for c in range(2, 15):
         col = openpyxl.utils.get_column_letter(c)
         ws.cell(r, c, f"=SUM({col}{prim}:{col}{r - 1})")
     formatar_linha(r, True)
-
-    r += 3
-    ws.cell(r, 1, "RECEITA x DESPESA x RESULTADO")
-    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
-    ws.cell(r, 1).fill, ws.cell(r, 1).font = azul, branco_neg
-    r += 1
-    cabecalho(r, "")
-    r += 1
-    lr, ld, lres = r, r + 1, r + 2
-    ws.cell(lr, 1, "RECEITA")
-    ws.cell(ld, 1, "DESPESA")
-    ws.cell(lres, 1, "RESULTADO")
-    ws.cell(lres + 1, 1, "MARGEM %")
-    for c in range(2, 15):
-        col = openpyxl.utils.get_column_letter(c)
-        ws.cell(lr, c, f"={col}{lin_receita}")
-        ws.cell(ld, c, f"={col}{lin_desp}")
-        ws.cell(lres, c, f"={col}{lr}-{col}{ld}")
-        ws.cell(lres + 1, c, f'=IFERROR({col}{lres}/{col}{lr},"")')
-    for x in (lr, ld):
-        formatar_linha(x)
-    formatar_linha(lres, True)
-    formatar_linha(lres + 1)
-    for c in range(2, 15):
-        ws.cell(lres + 1, c).number_format = "0.0%"
 
     wb.save(caminho_out)
 
@@ -226,9 +199,8 @@ def main():
     a.saida_dir.mkdir(parents=True, exist_ok=True)
     resumo = {}
     for chave, arq in (("cajazeiras", a.cajazeiras), ("triunfo", a.triunfo)):
-        cc = UNIDADES[chave]
-        escrever_bloco(arq, a.saida_dir / arq.name, tot[cc], agora)
-        resumo[cc] = {area: round(sum(m), 2) for area, m in tot[cc].items()}
+        escrever_bloco(arq, a.saida_dir / arq.name, chave, tot[chave], agora)
+        resumo[chave] = {area: round(sum(m), 2) for area, m in tot[chave].items()}
     resumo["pendencias"] = [
         {"data": d, "categoria": c, "centro_de_custo": cc, "valor": round(v, 2), "descricao": desc}
         for d, c, cc, v, desc in sorted(pend)
