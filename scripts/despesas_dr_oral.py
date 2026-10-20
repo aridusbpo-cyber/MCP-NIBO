@@ -6,6 +6,7 @@ Regras (aprovadas pela cliente em 20/10/2026):
 - área = categoria do Nibo cujo nome corresponde à linha de receita do RESUMO
   (mesma nomenclatura da planilha); Prótese + Implante numa linha só
 - "MATERIAIS ODONTOLOGICOS" (2.405) em linha própria
+- despesa de área sem unidade no Nibo (Não Identificado / sem CC) conta em Cajazeiras
 - só categorias de área entram; o resto das despesas fica fora do quadro
 - data = data do pagamento; transferências ignoradas
 
@@ -30,6 +31,8 @@ BASE = "https://api.nibo.com.br/empresas/v1"
 FUSO_BR = dt.timezone(dt.timedelta(hours=-3))
 
 UNIDADES = {"cajazeiras": "CAJAZEIRAS-PB", "triunfo": "TRIUNFO-PB"}
+# Despesa de área sem unidade definida no Nibo conta em Cajazeiras (decisão da cliente).
+CC_PADRAO_CAJAZEIRAS = {"Não Identificado", "(sem centro de custo)"}
 
 # Ordem = ordem das linhas no bloco; rótulos iguais aos do RESUMO de cada planilha.
 # Casamento pelo código da categoria (prefixo do nome).
@@ -79,7 +82,7 @@ def buscar_pagamentos(ano: int) -> list:
 
 
 def agregar(pagamentos: list):
-    """{unidade: {area: [12 meses]}} + pendências (categoria de área sem CC de unidade)."""
+    """{unidade: {area: [12 meses]}} + lançamentos atribuídos a Cajazeiras por falta de CC."""
     tot = defaultdict(lambda: defaultdict(lambda: [0.0] * 12))
     pendencias = []
     for p in pagamentos:
@@ -92,18 +95,16 @@ def agregar(pagamentos: list):
                 continue
             # categoria de entrada dentro de um pagamento (ex.: Descontos Recebidos) reduz a despesa
             valor = -c["value"] if c.get("type") == "in" else c["value"]
-            if not ccs:
-                pendencias.append((p["date"][:10], c["categoryName"], "(sem centro de custo)",
-                                   valor, p.get("description") or ""))
-            for cc in ccs:
+            for cc in ccs or [{"costCenterDescription": "(sem centro de custo)", "percent": 100}]:
                 nome_cc = cc["costCenterDescription"]
                 parte = valor * cc["percent"] / 100
                 unidade = next((u for u, n in UNIDADES.items() if n == nome_cc), None)
-                if unidade:
-                    tot[unidade][area_da_categoria(c["categoryName"], unidade)][mes] += parte
-                elif nome_cc == "Não Identificado":
+                if unidade is None and nome_cc in CC_PADRAO_CAJAZEIRAS:
+                    unidade = "cajazeiras"
                     pendencias.append((p["date"][:10], c["categoryName"], nome_cc, parte,
                                        p.get("description") or ""))
+                if unidade:
+                    tot[unidade][area_da_categoria(c["categoryName"], unidade)][mes] += parte
                 # SÓCIOS e OBRA: fora do quadro, por decisão da cliente
     return tot, pendencias
 
