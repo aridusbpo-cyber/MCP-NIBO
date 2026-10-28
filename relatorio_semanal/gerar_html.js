@@ -24,7 +24,6 @@ const ent = d.mov.filter(m => m.tipo === 'Entrada'), sai = d.mov.filter(m => m.t
 const totEnt = sum(ent), totSai = sum(sai), res = totEnt - totSai;
 const abertoAteSeg = d.pagar_atraso.concat(d.pagar_aberto);
 const tJ1 = sum(d.pagar_j1), tJ2 = sum(d.pagar_j2), tAb = sum(abertoAteSeg);
-const sobra = Math.round((totalCaixa - tAb - tJ1) * 100) / 100;
 const obra = d.saldos.find(s => /OBRA/i.test(s.conta));
 const s88 = d.saldos.find(s => /cnpj 88/i.test(s.conta));
 const cofre = contas.filter(s => /Cofre|Caixa/i.test(s.conta));
@@ -39,7 +38,7 @@ const card = (label, value, sub, c, hl) => `<div class="card${hl ? ' hl' : ''}">
 const sec = t => `<h2>${esc(t)}</h2>`;
 function grid(headers, rows) {
   return `<div class="tw"><table><thead><tr>${headers.map((h, i) => `<th${i ? ' class="n"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
-    rows.map(r => `<tr${r.total ? ' class="tot"' : ''}><td>${esc(r.label)}</td>${r.vals.map(v => `<td class="n ${v.c || ''}">${esc(v.t)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    rows.map(r => `<tr${r.total ? ' class="tot"' : ''}><td>${esc(r.label)}</td>${r.vals.map(v => `<td class="n ${v.c || ''}${v.b ? ' b' : ''}">${esc(v.t)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 
 const cols = [abertoAteSeg, d.pagar_j1, d.pagar_j2];
@@ -47,6 +46,11 @@ const cpHead = [`Até seg ${dm(d.segunda_pagamento)}`, `${dm(d.j1[0])} a ${dm(d.
 const v = x => ({ t: x ? brl(x) : '—', c: x ? 'alert' : 'muted' });
 const totRow = { label: 'Total', total: true, vals: cols.map(c => ({ t: brl(sum(c)), c: 'alert' })) };
 const ORD = ['Sicredi 33', 'Sicredi 88', 'Sicredi 95', 'Nubank Dra. Rayssa', 'Nubank Dr. Deusdedit', 'Caixa / espécie', 'Conta não informada'];
+const nec = require('./necessidade')(d, ORD);
+const segJ2 = addDays(d.j2[0], -1);
+const ok = { t: 'coberto', c: 'pos', b: 1 };
+const sobras = nec.rows.filter(r => r.saldo !== null && r.sobraFinal > 0.004);
+const semConta = nec.rows.find(r => r.conta === 'Conta não informada');
 const ru = units.map(u => { const e = sum(ent.filter(m => m.unidade === u)), s = sum(sai.filter(m => m.unidade === u)); return { u, e, s }; }).filter(x => x.e || x.s);
 
 const pendRows = [];
@@ -72,6 +76,7 @@ h3{color:var(--pri2);font-size:14px;margin:16px 0 6px}
 .card{border:1px solid var(--bd);border-top:3px solid var(--pri);padding:10px;text-align:center;background:#fff}.card.hl{background:var(--gold);border-top-color:var(--acc)}
 .lbl{font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase}.val{font-size:22px;font-weight:700;margin:4px 0}.sub{font-size:11px;font-style:italic;color:var(--mut)}
 .pos{color:var(--pos)}.alert{color:var(--alert)}.crit{color:var(--crit)}.muted{color:var(--mut)}
+.b{font-weight:700}
 .tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}
 th{background:var(--tint);color:var(--pri);font-size:11px;text-transform:uppercase;text-align:left;padding:7px 8px;border-top:1px solid var(--acc);border-bottom:1px solid var(--acc)}
 td{padding:7px 8px;border-bottom:1px solid var(--bd)}tbody tr:nth-child(even){background:var(--alt)}.n{text-align:right;white-space:nowrap}
@@ -93,9 +98,19 @@ ${sec(`1. Saldos em conta em ${dbr(d.cutoff)}`)}
 <div class="note">Fora do total: ${fora.map(s => `${esc(nomeCurto(s.conta))} ${brl(s.saldo)}`).join(' · ')}.${pend.length ? ` Há ${sum(pend, s => s.pend_qtd)} movimentos de extrato ainda em lançamento.` : ''}</div>
 
 ${sec('2. Resumo: o que precisa estar na conta')}
-<div class="cards kpi">${card('Disponível hoje', brl(totalCaixa), 'sem a obra', cls(totalCaixa))}${card(`A pagar até seg ${dm(d.segunda_pagamento)}`, brl(tAb), `vencidos + até ${dm(d.segunda_pagamento)}`, 'alert')}${card(`Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, brl(tJ1), `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'alert', true)}${card(`Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, brl(tJ2), 'meta de faturamento da próxima semana', 'alert')}</div>
-<p><b class="${sobra >= 0 ? 'pos' : 'crit'}">${sobra >= 0 ? '✔ Saldo cobre' : '⚠ Falta saldo para'}</b> as contas até ${dbr(d.j1[1])}: disponível ${brl(totalCaixa)} − a pagar ${brl(tAb + tJ1)} = <b class="${sobra >= 0 ? 'pos' : 'crit'}">${brl(sobra)}</b>.</p>
-<p><b style="color:var(--pri)">Meta da próxima semana:</b> faturar no mínimo <b class="alert">${brl(tJ2)}</b> até a segunda ${dbr(addDays(d.j2[0], -1))}, para as contas de ${dbr(d.j2[0])} a ${dbr(d.j2[1])}.</p>
+<div class="cards kpi">${card('Disponível hoje', brl(totalCaixa), 'sem a obra', cls(totalCaixa))}${card(`A pagar até seg ${dm(d.segunda_pagamento)}`, brl(tAb), `vencidos + até ${dm(d.segunda_pagamento)}`, 'alert')}${card(`Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, brl(tJ1), `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'alert', true)}${card(`Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, brl(tJ2), 'meta de faturamento · por conta abaixo', 'alert')}</div>
+<h3>Quanto precisa entrar em cada conta</h3>
+${grid(['Conta', 'Saldo hoje', `Pagar seg ${dm(d.segunda_pagamento)}`, `Falta até ${dm(d.segunda_pagamento)}`, `Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, `Faturar até ${dm(segJ2)}`], [
+  ...nec.rows.map(r => ({ label: r.conta, vals: [
+    r.saldo === null ? { t: '—', c: 'muted' } : { t: brl(r.saldo), c: cls(r.saldo) },
+    r.pagar ? { t: brl(r.pagar), c: 'alert' } : { t: '—', c: 'muted' },
+    r.falta ? { t: brl(r.falta), c: 'crit', b: 1 } : ok,
+    r.pagar2 ? { t: brl(r.pagar2), c: 'alert' } : { t: '—', c: 'muted' },
+    r.faturar ? { t: brl(r.faturar), c: 'alert', b: 1 } : ok] })),
+  { label: 'Total', total: true, vals: [{ t: '' }, { t: brl(nec.pagar) }, { t: brl(nec.falta), c: nec.falta ? 'crit' : 'pos' }, { t: brl(nec.pagar2) }, { t: brl(nec.faturar), c: nec.faturar ? 'alert' : 'pos' }] }])}
+<div class="note">Pagar seg ${dm(d.segunda_pagamento)} = vencidos + contas até ${dm(d.j1[1])}. Falta = quanto precisa entrar na conta até a segunda ${dm(d.segunda_pagamento)}. Faturar = quanto precisa entrar até a segunda ${dm(segJ2)} para as contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}, já descontado o que sobrar na conta. A sobra de uma conta não cobre a outra: só vale se houver transferência.</div>
+${sobras.length ? `<p><b class="pos">✔ Contas com sobra depois dos pagamentos:</b> ${sobras.map(r => `${esc(r.conta)} ${brl(r.sobraFinal)}`).join(' · ')}.</p>` : ''}
+${semConta ? `<p><b class="alert">⚠ Alerta:</b> ${brl(semConta.pagar + semConta.pagar2)} em contas sem conta de pagamento definida na Nibo. Enquanto não for definida, o valor entra inteiro como falta.</p>` : ''}
 
 ${sec(`3. Realizado da semana (${dm(d.semana[0])} a ${dm(d.semana[1])})`)}
 <div class="cards">${card('Total que entrou', brl(totEnt), '', 'pos')}${card('Total que saiu', brl(totSai), '', 'alert')}${card('Resultado da semana', brl(res), '', cls(res), true)}</div>

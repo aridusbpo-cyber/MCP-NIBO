@@ -39,19 +39,19 @@ function cell(children, { w, fill = WHITE, borders, align = AlignmentType.LEFT, 
     shading: { fill, type: ShadingType.CLEAR, color: 'auto' },
     borders: borders || { top: line(BORDER), bottom: line(BORDER), left: none, right: none },
     margins: M, verticalAlign: VerticalAlign.CENTER,
-    children: [para(children, { alignment: align })],
+    children: [para(children, { alignment: align, keepNext: true })],
   });
 }
 const table = (rows, widths) => new Table({ width: { size: PW, type: WidthType.DXA }, columnWidths: widths, rows });
 const gap = (after = 120) => para(tr(''), { spacing: { after } });
 
 function secHead(label) {
-  return [gap(160), table([new TableRow({ cantSplit: true, children: [new TableCell({
-    width: { size: PW, type: WidthType.DXA }, shading: { fill: BG_TINT, type: ShadingType.CLEAR, color: 'auto' },
-    borders: { left: line(PRIMARY, 16), bottom: line(ACCENT, 4), top: none, right: none },
-    margins: { top: 70, bottom: 70, left: 140, right: 80 },
-    children: [para(tr(label.toUpperCase(), 12, PRIMARY, true))],
-  })] })], [PW]), gap(80)];
+  // parágrafo (não tabela) para o título ficar sempre junto do conteúdo da seção
+  return [gap(160), para(tr(label.toUpperCase(), 12, PRIMARY, true), {
+    keepNext: true, keepLines: true, indent: { left: 140 }, spacing: { before: 0, after: 160 },
+    shading: { fill: BG_TINT, type: ShadingType.CLEAR, color: 'auto' },
+    border: { left: { ...line(PRIMARY, 16), space: 6 }, bottom: { ...line(ACCENT, 4), space: 4 }, top: { ...line(BG_TINT, 4), space: 4 } },
+  })];
 }
 const note = t => para(tr(t, 9.5, TEXT_MED, false, true), { spacing: { after: 80 } });
 
@@ -151,7 +151,7 @@ children.push(gap(40), note(`Fora do total: ${fora.map(s => `${nomeCurto(s.conta
 children.push(...secHead('2. Resumo: o que precisa estar na conta'));
 const kw = [2340, 2340, 2340, 2340];
 const kpiHead = ['Disponível hoje', `A pagar até seg ${dm(d.segunda_pagamento)}`, `Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, `Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`];
-const kpiSub = ['sem a obra', `vencidos + até ${dm(d.segunda_pagamento)}`, `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'meta de faturamento da próxima semana'];
+const kpiSub = ['sem a obra', `vencidos + até ${dm(d.segunda_pagamento)}`, `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'meta de faturamento · por conta abaixo'];
 const kpiVal = [[brl(totalCaixa), sign(totalCaixa)], [brl(tAb), RED], [brl(tJ1), RED], [brl(tJ2), RED]];
 children.push(table([
   new TableRow({ cantSplit: true, children: kpiHead.map((h, i) => cell([tr(h.toUpperCase(), 9, PRIMARY, true)], { w: kw[i], fill: i === 2 ? GOLD_TINT : BG_TINT, borders: { top: line(BORDER), bottom: line(BORDER), left: line(BORDER), right: line(BORDER) }, align: AlignmentType.CENTER })) }),
@@ -159,10 +159,26 @@ children.push(table([
     borders: { top: line(BORDER), bottom: line(BORDER), left: line(BORDER), right: line(BORDER) }, margins: M,
     children: [para(tr(v[0], 13, v[1], true), { alignment: AlignmentType.CENTER }), para(tr(kpiSub[i], 8, TEXT_MED, false, true), { alignment: AlignmentType.CENTER })] })) }),
 ], kw));
-const sobra = Math.round((totalCaixa - tAb - tJ1) * 100) / 100;
-children.push(gap(60),
-  para([tr(sobra >= 0 ? '✔ Saldo cobre ' : '⚠ Falta saldo para ', 11, sobra >= 0 ? GREEN : ORANGE, true), tr(`as contas até ${dbr(d.j1[1])}: disponível ${brl(totalCaixa)} − a pagar ${brl(tAb + tJ1)} = `), tr(brl(sobra), 11, sobra >= 0 ? GREEN : ORANGE, true), tr('.')], { spacing: { after: 60 } }),
-  para([tr(`Meta da próxima semana: `, 11, PRIMARY, true), tr(`faturar no mínimo `), tr(brl(tJ2), 11, RED, true), tr(` até a segunda ${dbr(addDays(d.j2[0], -1))}, para as contas de ${dbr(d.j2[0])} a ${dbr(d.j2[1])}.`)]));
+const NEC_ORD = ['Sicredi 33', 'Sicredi 88', 'Sicredi 95', 'Nubank Dra. Rayssa', 'Nubank Dr. Deusdedit', 'Caixa / espécie', 'Conta não informada'];
+const nec = require('./necessidade')(d, NEC_ORD);
+const segJ2 = addDays(d.j2[0], -1);
+const ok = { t: 'coberto', c: GREEN, b: true };
+children.push(gap(80), para(tr('Quanto precisa entrar em cada conta', 12, PRIMARY, true), { spacing: { after: 60 }, keepNext: true }));
+children.push(grid(['Conta', 'Saldo hoje', `Pagar seg ${dm(d.segunda_pagamento)}`, `Falta até ${dm(d.segunda_pagamento)}`, `Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, `Faturar até ${dm(segJ2)}`], [1560, 1560, 1560, 1560, 1560, 1560], [
+  ...nec.rows.map(r => ({ label: r.conta, vals: [
+    r.saldo === null ? { t: '—' } : { t: brl(r.saldo), c: sign(r.saldo) },
+    r.pagar ? { t: brl(r.pagar), c: RED } : { t: '—' },
+    r.falta ? { t: brl(r.falta), c: ORANGE, b: true } : ok,
+    r.pagar2 ? { t: brl(r.pagar2), c: RED } : { t: '—' },
+    r.faturar ? { t: brl(r.faturar), c: RED, b: true } : ok] })),
+  { label: 'Total', total: true, vals: [{ t: '' }, { t: brl(nec.pagar) }, { t: brl(nec.falta), c: nec.falta ? ORANGE : GREEN }, { t: brl(nec.pagar2) }, { t: brl(nec.faturar), c: nec.faturar ? RED : GREEN }] },
+]));
+const sobras = nec.rows.filter(r => r.saldo !== null && r.sobraFinal > 0.004);
+const semConta = nec.rows.find(r => r.conta === 'Conta não informada');
+children.push(gap(40),
+  note(`Pagar seg ${dm(d.segunda_pagamento)} = vencidos + contas até ${dm(d.j1[1])}. Falta = quanto precisa entrar na conta até a segunda ${dm(d.segunda_pagamento)}. Faturar = quanto precisa entrar até a segunda ${dm(segJ2)} para as contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}, já descontado o que sobrar na conta. A sobra de uma conta não cobre a outra: só vale se houver transferência.`),
+  ...(sobras.length ? [para([tr('✔ Contas com sobra depois dos pagamentos: ', 10, GREEN, true), tr(sobras.map(r => `${r.conta} ${brl(r.sobraFinal)}`).join(' · ') + '.', 10)], { spacing: { after: 40 } })] : []),
+  ...(semConta ? [para([tr('⚠ Alerta: ', 10, RED, true), tr(`${brl(semConta.pagar + semConta.pagar2)} em contas sem conta de pagamento definida na Nibo. Enquanto não for definida, o valor entra inteiro como falta.`, 10)], { spacing: { after: 40 } })] : []));
 
 // 3. Realizado
 children.push(...secHead(`3. Realizado da semana (${dm(d.semana[0])} a ${dm(d.semana[1])})`));
@@ -182,9 +198,9 @@ const cpHead = [`Até seg ${dm(d.segunda_pagamento)}`, `${dm(d.j1[0])} a ${dm(d.
 const cw = [2760, 2200, 2200, 2200];
 const v = x => ({ t: x ? brl(x) : '—', c: x ? RED : TEXT_MED });
 const totRow = { label: 'TOTAL', total: true, vals: cols.map(c => ({ t: brl(sum(c)), c: RED })) };
-children.push(para(tr('Por unidade', 10, PRIMARY_MED, true), { spacing: { after: 40 } }));
+children.push(para(tr('Por unidade', 10, PRIMARY_MED, true), { spacing: { after: 40 }, keepNext: true }));
 children.push(grid(['Unidade', ...cpHead], cw, [...units.filter(u => cols.some(c => c.some(r => r.unidade === u))).map(u => ({ label: UN[u], vals: cols.map(c => v(sum(c.filter(r => r.unidade === u)))) })), totRow]));
-children.push(gap(80), para(tr('Por conta de pagamento', 10, PRIMARY_MED, true), { spacing: { after: 40 } }));
+children.push(gap(80), para(tr('Por conta de pagamento', 10, PRIMARY_MED, true), { spacing: { after: 40 }, keepNext: true }));
 const ORD = ['Sicredi 33', 'Sicredi 88', 'Sicredi 95', 'Nubank Dra. Rayssa', 'Nubank Dr. Deusdedit', 'Caixa / espécie', 'Conta não informada'];
 children.push(grid(['Conta', ...cpHead], cw, [...ORD.filter(k => cols.some(c => c.some(r => r.conta_pag === k))).map(k => ({ label: k, vals: cols.map(c => v(sum(c.filter(r => r.conta_pag === k)))) })), totRow]));
 const fatAb = d.faturas.filter(f => !f.fechada);
