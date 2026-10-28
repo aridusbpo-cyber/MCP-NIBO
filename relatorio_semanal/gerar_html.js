@@ -96,18 +96,27 @@ const bancoCards = bancos.map(s => {
   return card(nomeCurto(s.conta).replace(/Sicredi \d{5}-\d/, 'Sicredi'), brl(s.saldo), atualizado(s), cls(s.saldo), false, det(`Movimentos da semana — ${nomeCurto(s.conta)}`, m, 'mov', `Saldo da conta em ${dm(d.cutoff)}: ${brl(s.saldo)}. Abaixo, só o que entrou e saiu nesta semana.`));
 }).join('') + card('Caixas e cofre', brl(sum(cofre, s => s.saldo)), `último lançamento ${dm(cofre.map(s => s.ult_mov).sort().pop())}`, 'pos', false, det('Movimentos da semana — caixas e cofre', movConta(/Cofre|Caixa/i), 'mov', `Saldo de caixas e cofre em ${dm(d.cutoff)}: ${brl(sum(cofre, s => s.saldo))}. Abaixo, só o que entrou e saiu nesta semana.`));
 
-const necGrid = grid(['Conta', 'Saldo hoje', `Pagar seg ${dm(d.segunda_pagamento)}`, `Falta até ${dm(d.segunda_pagamento)}`, `Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, `Faturar até ${dm(segJ2)}`], [
-  ...nec.rows.map(r => {
-    const k1 = det(`${r.conta} — pagar seg ${dm(d.segunda_pagamento)}`, ateJ1.filter(x => x.conta_pag === r.conta));
-    const k2 = det(`${r.conta} — contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}`, d.pagar_j2.filter(x => x.conta_pag === r.conta));
-    return { label: r.conta, vals: [
-      r.saldo === null ? { t: '—', c: 'muted' } : { t: brl(r.saldo), c: cls(r.saldo) },
-      r.pagar ? { t: brl(r.pagar), c: 'alert', k: k1 } : { t: '—', c: 'muted' },
-      r.falta ? { t: brl(r.falta), c: 'crit', b: 1, k: det(`${r.conta} — falta até ${dm(d.segunda_pagamento)}`, ateJ1.filter(x => x.conta_pag === r.conta), 'pagar', r.saldo === null ? `Sem conta de pagamento definida: o valor entra inteiro como falta (${brl(r.falta)}).` : `Falta ${brl(r.falta)} = a pagar ${brl(r.pagar)} − saldo de hoje ${brl(r.saldo)}.`) } : ok,
-      r.pagar2 ? { t: brl(r.pagar2), c: 'alert', k: k2 } : { t: '—', c: 'muted' },
-      r.faturar ? { t: brl(r.faturar), c: 'alert', b: 1, k: det(`${r.conta} — faturar até ${dm(segJ2)}`, d.pagar_j2.filter(x => x.conta_pag === r.conta), 'pagar', `Faturar ${brl(r.faturar)} = contas de ${dm(d.j2[0])} a ${dm(d.j2[1])} (${brl(r.pagar2)})${r.sobra > 0 ? ` − sobra da conta (${brl(r.sobra)})` : ''}.`) } : ok] };
-  }),
-  { label: 'Total', total: true, vals: [{ t: '' }, { t: brl(nec.pagar), k: det(`Pagar seg ${dm(d.segunda_pagamento)} — todas as contas`, ateJ1) }, { t: brl(nec.falta), c: nec.falta ? 'crit' : 'pos' }, { t: brl(nec.pagar2), k: kCol[2] }, { t: brl(nec.faturar), c: nec.faturar ? 'alert' : 'pos' }] }]);
+// fluxo de caixa por conta, semana a semana (um cartão por conta)
+const fluxo = nec.rows.map(r => {
+  const de = rows => rows.filter(x => x.conta_pag === r.conta);
+  const kAb = det(`${r.conta} — vencidos + até seg ${dm(d.segunda_pagamento)}`, de(abertoAteSeg));
+  const kJ1 = det(`${r.conta} — contas de ${dm(d.j1[0])} a ${dm(d.j1[1])}`, de(d.pagar_j1));
+  const kJ2 = det(`${r.conta} — contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}`, de(d.pagar_j2));
+  const kF1 = r.falta1 ? det(`${r.conta} — falta até ${dm(d.j1[1])}`, de(d.pagar_j1), 'pagar', `Falta ${brl(r.falta1)} = contas de ${dm(d.j1[0])} a ${dm(d.j1[1])} (${brl(r.j1)}) − saldo provisionado (${brl(r.prov1)}). Precisa entrar na conta até a segunda ${dm(d.segunda_pagamento)}.`) : null;
+  const kF2 = r.faturar ? det(`${r.conta} — falta até ${dm(d.j2[1])}`, de(d.pagar_j2), 'pagar', `Falta ${brl(r.faturar)} = contas de ${dm(d.j2[0])} a ${dm(d.j2[1])} (${brl(r.pagar2)}) − saldo provisionado (${brl(r.prov2)}). Meta de faturamento da conta até a segunda ${dm(segJ2)}.`) : null;
+  const ln = (l, val, c, k, x = '') => `<div class="fl ${x}"><span>${l}</span>${val === null ? '<b class="muted">—</b>' : `<b class="${c}${k ? ' lk' : ''}"${kAttr(k)}>${esc(val)}</b>`}</div>`;
+  const neg = v => (v ? brl(v) : '—');
+  return `<div class="fx${r.falta1 || r.faturar ? ' falta' : ''}"><div class="fxh">${esc(r.conta)}</div>
+${ln('Saldo hoje', r.saldo === null ? null : brl(r.saldo), r.saldo === null ? '' : cls(r.saldo), null, 'st')}
+${ln(`(−) Vencidos + até seg ${dm(d.segunda_pagamento)}`, neg(r.aberto), r.aberto ? 'alert' : 'muted', kAb)}
+${ln(`= Saldo para ${dm(d.j1[0])} a ${dm(d.j1[1])}`, brl(r.prov1), r.prov1 < 0 ? 'crit' : 'pos', null, 'st')}
+${ln(`(−) Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, neg(r.j1), r.j1 ? 'alert' : 'muted', kJ1)}
+${ln(`FALTA até ${dm(d.j1[1])} <small>depositar até ${dm(d.segunda_pagamento)}</small>`, r.falta1 ? brl(r.falta1) : '✔ coberto', r.falta1 ? 'crit' : 'pos', kF1, 'fz')}
+${ln(`= Saldo para ${dm(d.j2[0])} a ${dm(d.j2[1])}`, brl(r.prov2), 'pos', null, 'st')}
+${ln(`(−) Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, neg(r.pagar2), r.pagar2 ? 'alert' : 'muted', kJ2)}
+${ln(`FALTA até ${dm(d.j2[1])} <small>faturar até ${dm(segJ2)}</small>`, r.faturar ? brl(r.faturar) : '✔ coberto', r.faturar ? 'alert' : 'pos', kF2, 'fz')}
+</div>`;
+}).join('');
 
 const body = `
 <header><img src="data:image/png;base64,${logo}" alt="Aridus BPO"><div class="t"><b>RELATÓRIO SEMANAL</b> <i>— Fluxo de Caixa &amp; Previsões</i><div>DR Oral Clinic | Atualizado em ${dbr(d.cutoff)}</div></div></header>
@@ -124,9 +133,10 @@ ${sec(`1. Saldos em conta em ${dbr(d.cutoff)}`)}
 
 ${sec('2. Resumo: o que precisa estar na conta')}
 <div class="cards kpi">${card('Disponível hoje', brl(totalCaixa), 'sem a obra', cls(totalCaixa))}${card(`A pagar até seg ${dm(d.segunda_pagamento)}`, brl(tAb), `vencidos + até ${dm(d.segunda_pagamento)}`, 'alert', false, kCol[0])}${card(`Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, brl(tJ1), `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'alert', true, kCol[1])}${card(`Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, brl(tJ2), 'meta de faturamento · por conta abaixo', 'alert', false, kCol[2])}</div>
-<h3>Quanto precisa entrar em cada conta</h3>
-${necGrid}
-<div class="note">Pagar seg ${dm(d.segunda_pagamento)} = vencidos + contas até ${dm(d.j1[1])}. Falta = quanto precisa entrar na conta até a segunda ${dm(d.segunda_pagamento)}. Faturar = quanto precisa entrar até a segunda ${dm(segJ2)} para as contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}, já descontado o que sobrar na conta. A sobra de uma conta não cobre a outra: só vale se houver transferência.</div>
+<h3>Fluxo de caixa por conta: quanto falta em cada semana</h3>
+<div class="fxs">${fluxo}</div>
+<div class="fxt"><div>Total que falta até ${dm(d.j1[1])} <small>(depositar até seg ${dm(d.segunda_pagamento)})</small> <b class="crit">${brl(nec.tot('falta1'))}</b></div><div>Total que falta até ${dm(d.j2[1])} <small>(faturar até seg ${dm(segJ2)})</small> <b class="alert">${brl(nec.tot('faturar'))}</b></div></div>
+<div class="note">Como ler: o saldo de hoje paga primeiro o que vence até ${dm(d.segunda_pagamento)}; o que sobra é o saldo provisionado para as contas de ${dm(d.j1[0])} a ${dm(d.j1[1])}, pagas antecipadamente na segunda ${dm(d.segunda_pagamento)}. Se não cobrir, a FALTA precisa entrar na conta até essa segunda. O que sobrar passa para as contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}, e a FALTA dessa semana é a meta de faturamento da conta até a segunda ${dm(segJ2)}. A sobra de uma conta não cobre a outra: só vale se houver transferência.</div>
 ${sobras.length ? `<p><b class="pos">✔ Contas com sobra depois dos pagamentos:</b> ${sobras.map(r => `${esc(r.conta)} ${brl(r.sobraFinal)}`).join(' · ')}.</p>` : ''}
 ${semConta ? `<p><b class="alert">⚠ Alerta:</b> ${lk(brl(semConta.pagar + semConta.pagar2), det('Contas sem conta de pagamento definida na Nibo', ateJ1.concat(d.pagar_j2).filter(x => x.conta_pag === 'Conta não informada')), 'b')} em contas sem conta de pagamento definida na Nibo. Enquanto não for definida, o valor entra inteiro como falta.</p>` : ''}
 
@@ -228,6 +238,12 @@ td{padding:7px 8px;border-bottom:1px solid var(--bd)}tbody tr:nth-child(even){ba
 tr.tot td{background:var(--tint);font-weight:700;color:var(--pri);border-top:2px solid var(--acc);border-bottom:2px solid var(--acc)}tr.tot td.alert{color:var(--alert)}tr.tot td.pos{color:var(--pos)}tr.tot td.crit{color:var(--crit)}
 .kpi .card .val{font-size:19px}p{margin:8px 0}a{color:var(--link)}
 .obs{display:flex;border-top:1px solid var(--bd);border-bottom:1px solid var(--bd);margin:8px 0}.obs .num{background:var(--tint);color:var(--pri);font-weight:700;min-width:36px;display:flex;align-items:center;justify-content:center}.obs .txt{border-left:3px solid var(--acc);padding:8px 12px}
+.fxs{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin:10px 0}
+.fx{border:1px solid var(--bd);border-top:3px solid var(--pos);border-radius:6px;background:#fff;font-size:13.5px}.fx.falta{border-top-color:var(--crit)}
+.fxh{background:var(--tint);color:var(--pri);font-weight:700;padding:6px 10px;text-transform:uppercase;font-size:12.5px}
+.fl{display:flex;justify-content:space-between;gap:8px;padding:4px 10px;border-bottom:1px solid var(--alt)}.fl b{white-space:nowrap}.fl small{color:var(--mut);font-weight:400;display:block;font-size:11px}
+.fl.st{background:var(--alt);font-weight:700;color:var(--pri)}.fl.fz{background:var(--gold);font-weight:700}
+.fxt{display:flex;flex-wrap:wrap;gap:8px 24px;background:var(--gold);border:1px solid #EADBB5;border-radius:6px;padding:8px 12px;font-weight:700;color:var(--pri)}.fxt small{font-weight:400;color:var(--mut)}
 footer{margin-top:32px;border-top:1px solid var(--bd);padding-top:8px;font-size:11px;color:var(--mut)}
 #ov{position:fixed;inset:0;background:rgba(30,45,40,.45);display:none;z-index:10;overflow-y:auto;padding:24px 12px}
 #ov.on{display:block}

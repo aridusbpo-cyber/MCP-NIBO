@@ -9,14 +9,17 @@ const sum = a => r2(a.reduce((s, r) => s + r.valor, 0));
 
 module.exports = function necessidade(d, ORD) {
   const ate = d.pagar_atraso.concat(d.pagar_aberto, d.pagar_j1), j2 = d.pagar_j2;
-  const liq = d.saldos.filter(s => s.liquidez);
+  const liq = d.saldos.filter(s => s.liquidez), ab = d.pagar_atraso.concat(d.pagar_aberto);
   const rows = ORD.map(conta => {
     const re = SALDO_RE[conta];
     const saldo = re ? r2(liq.filter(s => re.test(s.conta)).reduce((a, s) => a + s.saldo, 0)) : null;
     const pagar = sum(ate.filter(r => r.conta_pag === conta)), pagar2 = sum(j2.filter(r => r.conta_pag === conta));
     const sobra = r2((saldo || 0) - pagar);
-    return { conta, saldo, pagar, sobra, falta: Math.max(0, -sobra), pagar2, faturar: r2(Math.max(0, pagar2 - Math.max(0, sobra))), sobraFinal: r2(sobra - pagar2) };
+    // fluxo semana a semana: o que sobra de uma janela é o saldo provisionado da seguinte
+    const aberto = sum(ab.filter(r => r.conta_pag === conta)), j1 = sum(d.pagar_j1.filter(r => r.conta_pag === conta));
+    const prov1 = r2((saldo || 0) - aberto), prov2 = r2(Math.max(0, prov1 - j1));
+    return { conta, saldo, aberto, prov1, j1, falta1: r2(Math.max(0, j1 - prov1)), prov2, pagar, sobra, falta: Math.max(0, -sobra), pagar2, faturar: r2(Math.max(0, pagar2 - Math.max(0, sobra))), sobraFinal: r2(sobra - pagar2) };
   }).filter(r => r.saldo !== null || r.pagar || r.pagar2);
   return { rows, falta: r2(rows.reduce((a, r) => a + r.falta, 0)), faturar: r2(rows.reduce((a, r) => a + r.faturar, 0)),
-    pagar: r2(rows.reduce((a, r) => a + r.pagar, 0)), pagar2: r2(rows.reduce((a, r) => a + r.pagar2, 0)) };
+    pagar: r2(rows.reduce((a, r) => a + r.pagar, 0)), tot: k => r2(rows.reduce((a, r) => a + (r[k] || 0), 0)), pagar2: r2(rows.reduce((a, r) => a + r.pagar2, 0)) };
 };

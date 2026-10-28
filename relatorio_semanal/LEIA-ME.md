@@ -28,7 +28,8 @@ Versão HTML (arquivo único): `node <repo>/relatorio_semanal/gerar_html.js dado
 As planilhas ficam no Drive em `09. D R Oral Clinic › Planilhas › Lançamentos a identificar` e `› Contas a pagar previsão`.
 Nada é enviado ao cliente sem pedido explícito da Aridus.
 
-## Quanto precisa entrar em cada conta (necessidade.js)
+## Fluxo de caixa por conta (necessidade.js)
+Por conta: saldo hoje − vencidos e até a segunda de pagamento = saldo provisionado para a semana seguinte; menos essas contas = FALTA (depositar até a segunda); o que sobrar vai para a outra semana, cuja FALTA é a meta de faturamento da conta.
 Para cada conta de pagamento: saldo de hoje − (vencidos + contas até a segunda seguinte) = falta até a segunda de pagamento. A conta das contas da outra semana, menos a sobra da mesma conta, dá o que é preciso faturar. A sobra de uma conta não cobre a outra. "Conta não informada" não tem saldo, então entra inteira como falta.
 
 ## HTML interativo (gerar_html.js)

@@ -163,20 +163,41 @@ const NEC_ORD = ['Sicredi 33', 'Sicredi 88', 'Sicredi 95', 'Nubank Dra. Rayssa',
 const nec = require('./necessidade')(d, NEC_ORD);
 const segJ2 = addDays(d.j2[0], -1);
 const ok = { t: 'coberto', c: GREEN, b: true };
-children.push(gap(80), para(tr('Quanto precisa entrar em cada conta', 12, PRIMARY, true), { spacing: { after: 60 }, keepNext: true }));
-children.push(grid(['Conta', 'Saldo hoje', `Pagar seg ${dm(d.segunda_pagamento)}`, `Falta até ${dm(d.segunda_pagamento)}`, `Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, `Faturar até ${dm(segJ2)}`], [1560, 1560, 1560, 1560, 1560, 1560], [
-  ...nec.rows.map(r => ({ label: r.conta, vals: [
-    r.saldo === null ? { t: '—' } : { t: brl(r.saldo), c: sign(r.saldo) },
-    r.pagar ? { t: brl(r.pagar), c: RED } : { t: '—' },
-    r.falta ? { t: brl(r.falta), c: ORANGE, b: true } : ok,
-    r.pagar2 ? { t: brl(r.pagar2), c: RED } : { t: '—' },
-    r.faturar ? { t: brl(r.faturar), c: RED, b: true } : ok] })),
-  { label: 'Total', total: true, vals: [{ t: '' }, { t: brl(nec.pagar) }, { t: brl(nec.falta), c: nec.falta ? ORANGE : GREEN }, { t: brl(nec.pagar2) }, { t: brl(nec.faturar), c: nec.faturar ? RED : GREEN }] },
-]));
+children.push(gap(80), para(tr('Fluxo de caixa por conta: quanto falta em cada semana', 12, PRIMARY, true), { spacing: { after: 60 }, keepNext: true }));
+// tabela transposta: linhas = passos do fluxo, colunas = contas (valores em R$)
+const CURTO = { 'Sicredi 33': 'Sicredi 33', 'Sicredi 88': 'Sicredi 88', 'Sicredi 95': 'Sicredi 95', 'Nubank Dra. Rayssa': 'Nubank Rayssa', 'Nubank Dr. Deusdedit': 'Nubank Deusdedit', 'Caixa / espécie': 'Espécie', 'Conta não informada': 'Sem conta' };
+const n2 = v => Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = v => (v < -0.004 ? '-' : '') + n2(v);
+const STEPS = [
+  { l: 'Saldo hoje', k: 'saldo', f: v => [v === null ? '—' : fmt(v), v === null ? TEXT_MED : sign(v)], strong: true },
+  { l: `(−) Vencidos + até seg ${dm(d.segunda_pagamento)}`, k: 'aberto', f: v => [v ? n2(v) : '—', v ? RED : TEXT_MED] },
+  { l: `= Saldo para ${dm(d.j1[0])} a ${dm(d.j1[1])}`, k: 'prov1', f: v => [fmt(v), v < -0.004 ? ORANGE : GREEN], strong: true },
+  { l: `(−) Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, k: 'j1', f: v => [v ? n2(v) : '—', v ? RED : TEXT_MED] },
+  { l: `FALTA até ${dm(d.j1[1])} (depositar até ${dm(d.segunda_pagamento)})`, k: 'falta1', f: v => [v ? n2(v) : 'coberto', v ? ORANGE : GREEN], hl: true },
+  { l: `= Saldo para ${dm(d.j2[0])} a ${dm(d.j2[1])}`, k: 'prov2', f: v => [fmt(v), GREEN], strong: true },
+  { l: `(−) Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, k: 'pagar2', f: v => [v ? n2(v) : '—', v ? RED : TEXT_MED] },
+  { l: `FALTA até ${dm(d.j2[1])} (faturar até ${dm(segJ2)})`, k: 'faturar', f: v => [v ? n2(v) : 'coberto', v ? RED : GREEN], hl: true },
+];
+const fw = [1880, ...Array(nec.rows.length + 1).fill(Math.floor((PW - 1880) / (nec.rows.length + 1)))];
+const fhb = { top: line(ACCENT), bottom: line(ACCENT), left: none, right: none };
+const totCol = r => (r.k === 'saldo' ? nec.tot('saldo') : nec.tot(r.k));
+children.push(table([
+  new TableRow({ cantSplit: true, tableHeader: true, children: [cell([tr('R$', 8, PRIMARY, true)], { w: fw[0], fill: BG_TINT, borders: fhb }),
+    ...nec.rows.map((r, i) => cell([tr(CURTO[r.conta].toUpperCase(), 8, PRIMARY, true)], { w: fw[i + 1], fill: BG_TINT, borders: fhb, align: AlignmentType.RIGHT })),
+    cell([tr('TOTAL', 8, PRIMARY, true)], { w: fw[fw.length - 1], fill: BG_TINT, borders: fhb, align: AlignmentType.RIGHT })] }),
+  ...STEPS.map((st, k) => {
+    const fill = st.hl ? GOLD_TINT : (k % 2 ? ROW_ALT : WHITE);
+    const b = st.hl ? { top: line(ACCENT, 6), bottom: line(ACCENT, 6), left: none, right: none } : undefined;
+    const tv = totCol(st), tf = st.f(tv);
+    return new TableRow({ cantSplit: true, children: [cell([tr(st.l, 8.5, st.hl || st.strong ? PRIMARY : TEXT, !!(st.hl || st.strong))], { w: fw[0], fill, borders: b }),
+      ...nec.rows.map((r, i) => { const [t, c] = st.f(r[st.k]); return cell([tr(t, 8.5, c, !!(st.hl || st.strong))], { w: fw[i + 1], fill, borders: b, align: AlignmentType.RIGHT }); }),
+      cell([tr(tf[0], 8.5, tf[1], true)], { w: fw[fw.length - 1], fill: st.hl ? GOLD_TINT : BG_TINT, borders: b, align: AlignmentType.RIGHT })] });
+  }),
+], fw));
 const sobras = nec.rows.filter(r => r.saldo !== null && r.sobraFinal > 0.004);
 const semConta = nec.rows.find(r => r.conta === 'Conta não informada');
 children.push(gap(40),
-  note(`Pagar seg ${dm(d.segunda_pagamento)} = vencidos + contas até ${dm(d.j1[1])}. Falta = quanto precisa entrar na conta até a segunda ${dm(d.segunda_pagamento)}. Faturar = quanto precisa entrar até a segunda ${dm(segJ2)} para as contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}, já descontado o que sobrar na conta. A sobra de uma conta não cobre a outra: só vale se houver transferência.`),
+  note(`Como ler: o saldo de hoje paga primeiro o que vence até ${dm(d.segunda_pagamento)}; o que sobra é o saldo provisionado para as contas de ${dm(d.j1[0])} a ${dm(d.j1[1])}, pagas antecipadamente na segunda ${dm(d.segunda_pagamento)}. Se não cobrir, a FALTA precisa entrar na conta até essa segunda. O que sobrar passa para as contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}, e a FALTA dessa semana é a meta de faturamento da conta até a segunda ${dm(segJ2)}. A sobra de uma conta não cobre a outra: só vale se houver transferência.`),
   ...(sobras.length ? [para([tr('✔ Contas com sobra depois dos pagamentos: ', 10, GREEN, true), tr(sobras.map(r => `${r.conta} ${brl(r.sobraFinal)}`).join(' · ') + '.', 10)], { spacing: { after: 40 } })] : []),
   ...(semConta ? [para([tr('⚠ Alerta: ', 10, RED, true), tr(`${brl(semConta.pagar + semConta.pagar2)} em contas sem conta de pagamento definida na Nibo. Enquanto não for definida, o valor entra inteiro como falta.`, 10)], { spacing: { after: 40 } })] : []));
 
