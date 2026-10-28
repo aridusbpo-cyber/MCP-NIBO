@@ -100,7 +100,7 @@ function dataTable(headers, widths, rows, { totalLabel, totalValues, valueColors
 // ---------- números ----------
 const contas = d.saldos.filter(s => s.liquidez);
 const totalCaixa = sum(contas, s => s.saldo);
-const nomeCurto = n => n.replace(/^\d+(\.\d+)?\.?\s*/, '').replace(/C\/C\s*/, '').replace(/\s+/g, ' ').trim();
+const nomeCurto = n => n.replace(/^\d+(\.\d+)?\s*[.-]?\s*/, '').replace(/C\/C\s*/, '').replace(/\s+/g, ' ').trim();
 const atualizado = s => s.openfinance ? `extrato sincronizado ${dm(s.sync)}` : `último lançamento ${dm(s.ult_mov)}`;
 const units = d.units;
 const byUnit = (rows) => units.map(u => ({ u, rows: rows.filter(r => r.unidade === u) })).filter(x => x.rows.length);
@@ -111,129 +111,101 @@ const tJ1 = sum(d.pagar_j1), tJ2 = sum(d.pagar_j2), tAb = sum(abertoAteSeg);
 const parcial = d.cutoff < d.ref;
 
 const children = [];
+const ORANGE = 'C9731E', GREEN = '2E7D4F';
+const sign = v => (v >= 0 ? GREEN : RED);
 children.push(para(tr('Relatório Semanal — DR Oral Clinic', 18, PRIMARY, true), { border: { bottom: line(ACCENT, 4) }, spacing: { after: 100 } }));
 children.push(para([tr(`Semana de ${dbr(d.semana_completa[0])} a ${dbr(d.semana_completa[1])} · `, 10, TEXT_MED), tr(`dados da Nibo até ${dbr(d.cutoff)}`, 10, TEXT_MED, true)], { spacing: { after: 60 } }));
 if (parcial) children.push(note(`Prévia: a semana ainda não terminou. A versão final é gerada na sexta-feira ${dbr(d.ref)}, às 17h.`));
+children.push(para([tr('Legenda: ', 9, TEXT_MED, true), tr('■ positivo  ', 9, GREEN, true), tr('■ alerta  ', 9, RED, true), tr('■ crítico', 9, ORANGE, true)], { spacing: { after: 40 } }));
+
+// tabela compacta com cor por célula: rows = [{label, vals:[{t,c}], bold}]
+function grid(headers, widths, rows) {
+  const hb = { top: line(ACCENT), bottom: line(ACCENT), left: none, right: none };
+  const head = new TableRow({ cantSplit: true, tableHeader: true, children: headers.map((h, i) => cell([tr(h.toUpperCase(), 9, PRIMARY, true)], { w: widths[i], fill: BG_TINT, borders: hb, align: i ? AlignmentType.RIGHT : AlignmentType.LEFT })) });
+  return table([head, ...rows.map((r, k) => {
+    const tot = r.total, fill = tot ? BG_TINT : (k % 2 ? ROW_ALT : WHITE);
+    const b = tot ? { top: line(ACCENT, 8), bottom: line(ACCENT, 8), left: none, right: none } : undefined;
+    return new TableRow({ cantSplit: true, children: [cell([tr(r.label, 11, tot ? PRIMARY : TEXT, !!tot)], { w: widths[0], fill, borders: b }),
+      ...r.vals.map((v, i) => cell([tr(v.t, 11, v.c || TEXT, !!tot || !!v.b)], { w: widths[i + 1], fill, borders: b, align: AlignmentType.RIGHT }))] });
+  })], widths);
+}
 
 // 1. Saldos
 children.push(...secHead(`1. Saldos em conta em ${dbr(d.cutoff)}`));
 const cofre = contas.filter(s => /Cofre|Caixa/i.test(s.conta));
 const bancos = contas.filter(s => !/Cofre|Caixa/i.test(s.conta)).sort((a, b) => a.conta.localeCompare(b.conta));
-const cardItems = bancos.map(s => ({ label: nomeCurto(s.conta).replace('Sicredi 09266-5', 'Sicredi').replace('Sicredi 09293-2', 'Sicredi'), value: brl(s.saldo), sub: atualizado(s) }));
-cardItems.push({ label: 'Caixas e cofre', value: brl(sum(cofre, s => s.saldo)), sub: `último lançamento ${dm(cofre.map(s => s.ult_mov).sort().pop())}` });
+const cardItems = bancos.map(s => ({ label: nomeCurto(s.conta).replace(/Sicredi \d{5}-\d/, 'Sicredi'), value: brl(s.saldo), sub: atualizado(s), color: sign(s.saldo) }));
+cardItems.push({ label: 'Caixas e cofre', value: brl(sum(cofre, s => s.saldo)), sub: `último lançamento ${dm(cofre.map(s => s.ult_mov).sort().pop())}`, color: GREEN });
 children.push(cards(cardItems.slice(0, 3)), gap(60), cards(cardItems.slice(3)), gap(60));
-children.push(cards([{ label: 'Total disponível', value: brl(totalCaixa), sub: `soma das contas acima · posição ${dbr(d.cutoff)}`, highlight: true }]));
+const obra = d.saldos.find(s => /OBRA/i.test(s.conta));
+const s88 = d.saldos.find(s => /cnpj 88/i.test(s.conta));
+children.push(cards([
+  { label: 'Total disponível', value: brl(totalCaixa), sub: 'soma das contas acima (sem a obra)', color: sign(totalCaixa), highlight: true },
+  ...(obra ? [{ label: 'Obra — separado', value: brl(obra.saldo), sub: `reservado dentro da Sicredi 88 · no banco a 88 soma ${brl(s88.saldo + obra.saldo)}`, color: ORANGE }] : []),
+]));
 const pend = d.saldos.filter(s => s.pend_qtd);
-const fora = d.saldos.filter(s => !s.liquidez && Math.abs(s.saldo) > 0.004);
-children.push(gap(40), note(`Saldos calculados na Nibo (saldo inicial + lançamentos). ${pend.length ? 'Ainda há movimentos do extrato aguardando lançamento: ' + pend.map(s => `${nomeCurto(s.conta)} (${s.pend_qtd}, líquido ${brl(s.pend_valor)})`).join('; ') + '. ' : ''}Fora do total: ${fora.map(s => `${nomeCurto(s.conta)} ${brl(s.saldo)}`).join(' · ')}.`));
+const fora = d.saldos.filter(s => !s.liquidez && !/OBRA/i.test(s.conta) && Math.abs(s.saldo) > 0.004);
+children.push(gap(40), note(`Fora do total: ${fora.map(s => `${nomeCurto(s.conta)} ${brl(s.saldo)}`).join(' · ')}.${pend.length ? ' Há ' + sum(pend, s => s.pend_qtd) + ' movimentos de extrato ainda em lançamento.' : ''}`));
 
 // 2. Resumo
 children.push(...secHead('2. Resumo: o que precisa estar na conta'));
 const kw = [2340, 2340, 2340, 2340];
 const kpiHead = ['Disponível hoje', `A pagar até seg ${dm(d.segunda_pagamento)}`, `Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, `Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`];
-const kpiSub = ['todas as contas', 'vencidos + 28/10 a 02/11'.replace('28/10', dm(d.cutoff)).replace('02/11', dm(d.segunda_pagamento)), `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · inclui faturas de cartão ainda não fechadas' : ''), 'meta de faturamento da próxima semana'];
-const kpiVal = [[brl(totalCaixa), PRIMARY], [brl(tAb), RED], [brl(tJ1), RED], [brl(tJ2), RED]];
+const kpiSub = ['sem a obra', `vencidos + até ${dm(d.segunda_pagamento)}`, `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'meta de faturamento da próxima semana'];
+const kpiVal = [[brl(totalCaixa), sign(totalCaixa)], [brl(tAb), RED], [brl(tJ1), RED], [brl(tJ2), RED]];
 children.push(table([
   new TableRow({ cantSplit: true, children: kpiHead.map((h, i) => cell([tr(h.toUpperCase(), 9, PRIMARY, true)], { w: kw[i], fill: i === 2 ? GOLD_TINT : BG_TINT, borders: { top: line(BORDER), bottom: line(BORDER), left: line(BORDER), right: line(BORDER) }, align: AlignmentType.CENTER })) }),
   new TableRow({ cantSplit: true, children: kpiVal.map((v, i) => new TableCell({ width: { size: kw[i], type: WidthType.DXA }, shading: { fill: i === 2 ? GOLD_TINT : WHITE, type: ShadingType.CLEAR, color: 'auto' },
     borders: { top: line(BORDER), bottom: line(BORDER), left: line(BORDER), right: line(BORDER) }, margins: M,
     children: [para(tr(v[0], 13, v[1], true), { alignment: AlignmentType.CENTER }), para(tr(kpiSub[i], 8, TEXT_MED, false, true), { alignment: AlignmentType.CENTER })] })) }),
 ], kw));
-const fu = rows => byUnit(rows).map(x => `${UN[x.u]} ${brl(sum(x.rows))}`).join(' · ');
+const sobra = Math.round((totalCaixa - tAb - tJ1) * 100) / 100;
 children.push(gap(60),
-  para([tr('Segunda-feira ' + dbr(d.segunda_pagamento) + ': ', 11, PRIMARY, true), tr(`pagar as contas de ${dbr(d.j1[0])} a ${dbr(d.j1[1])}, total de ${brl(tJ1)} (${fu(d.pagar_j1)}).`)], { spacing: { after: 60 } }),
-  para([tr(`Meta da próxima semana: `, 11, PRIMARY, true), tr(`faturar no mínimo ${brl(tJ2)} até a segunda ${dbr(addDays(d.j2[0], -1))}, para pagar as contas de ${dbr(d.j2[0])} a ${dbr(d.j2[1])} (${fu(d.pagar_j2)}).`)], { spacing: { after: 60 } }),
-  para([tr('Ainda em aberto até ' + dbr(d.segunda_pagamento) + ': ', 11, PRIMARY, true), tr(`${brl(tAb)} (${fu(abertoAteSeg)})${d.pagar_atraso.length ? `, dos quais ${brl(sum(d.pagar_atraso))} já vencidos` : ''}.`)]),
-);
+  para([tr(sobra >= 0 ? '✔ Saldo cobre ' : '⚠ Falta saldo para ', 11, sobra >= 0 ? GREEN : ORANGE, true), tr(`as contas até ${dbr(d.j1[1])}: disponível ${brl(totalCaixa)} − a pagar ${brl(tAb + tJ1)} = `), tr(brl(sobra), 11, sobra >= 0 ? GREEN : ORANGE, true), tr('.')], { spacing: { after: 60 } }),
+  para([tr(`Meta da próxima semana: `, 11, PRIMARY, true), tr(`faturar no mínimo `), tr(brl(tJ2), 11, RED, true), tr(` até a segunda ${dbr(addDays(d.j2[0], -1))}, para as contas de ${dbr(d.j2[0])} a ${dbr(d.j2[1])}.`)]));
 
 // 3. Realizado
 children.push(...secHead(`3. Realizado da semana (${dm(d.semana[0])} a ${dm(d.semana[1])})`));
 const res = totEnt - totSai;
 children.push(cards([
-  { label: 'Total que entrou', value: brl(totEnt) }, { label: 'Total que saiu', value: brl(totSai), color: RED },
-  { label: 'Resultado da semana', value: brl(res), color: res >= 0 ? PRIMARY : RED, highlight: true }]), gap(80));
-const ruW = [3360, 2000, 2000, 2000];
+  { label: 'Total que entrou', value: brl(totEnt), color: GREEN }, { label: 'Total que saiu', value: brl(totSai), color: RED },
+  { label: 'Resultado da semana', value: brl(res), color: sign(res), highlight: true }]), gap(80));
 const ru = units.map(u => { const e = sum(ent.filter(m => m.unidade === u)), s = sum(sai.filter(m => m.unidade === u)); return { u, e, s }; }).filter(x => x.e || x.s);
-children.push(dataTable(['Unidade', 'Entradas', 'Saídas', 'Resultado'], ruW,
-  ru.map(x => [UN[x.u], x.e ? brl(x.e) : '—', x.s ? brl(x.s) : '—', brl(x.e - x.s)]),
-  { valueColors: [undefined, PRIMARY, RED, PRIMARY], totalLabel: 'TOTAL', totalValues: [{ text: brl(totEnt) }, { text: brl(totSai), color: RED }, { text: brl(res), color: res >= 0 ? PRIMARY : RED }] }));
-children.push(gap(40), note('Transferências entre contas da própria clínica não entram como entrada nem saída. O detalhe de cada lançamento está na seção 9.'));
+children.push(grid(['Unidade', 'Entradas', 'Saídas', 'Resultado'], [3360, 2000, 2000, 2000], [
+  ...ru.map(x => ({ label: UN[x.u], vals: [{ t: x.e ? brl(x.e) : '—', c: GREEN }, { t: x.s ? brl(x.s) : '—', c: RED }, { t: brl(x.e - x.s), c: sign(x.e - x.s) }] })),
+  { label: 'TOTAL', total: true, vals: [{ t: brl(totEnt), c: GREEN }, { t: brl(totSai), c: RED }, { t: brl(res), c: sign(res) }] }]));
 
-// 4/5. Contas a pagar por janela
-function cpSection(titulo, rows, sub) {
-  children.push(...secHead(titulo));
-  children.push(note(sub));
-  const w = [3360, 1500, 4500];
-  const groups = byUnit(rows);
-  children.push(dataTable(['Unidade', 'Itens', 'Valor'], [3360, 1500, 4500], groups.map(g => [UN[g.u], String(g.rows.length), brl(sum(g.rows))]),
-    { valueColors: [undefined, TEXT, RED], totalLabel: 'TOTAL', totalValues: [{ text: String(rows.length), color: PRIMARY }, { text: brl(sum(rows)), color: RED }] }));
-  const fats = d.faturas.filter(f => rows.some(r => r.cartao === f.cartao && r.venc === f.venc));
-  if (fats.length) {
-    children.push(gap(60), para(tr('Faturas dos cartões PJ (vencimento dia 8)', 10, PRIMARY_MED, true), { spacing: { after: 40 } }));
-    children.push(dataTable(['Cartão', 'Venc.', 'Situação', 'Compras', 'Valor previsto'], [1700, 1100, 3460, 1100, 2000],
-      fats.map(f => [`Cartão PJ ${f.cartao}`, `${dm(f.venc)} ${dia(f.venc)}`, f.fechada ? 'Fatura fechada' : 'Ainda não fechada · valor parcial', String(f.itens.length), brl(f.total)]),
-      { valueColors: [undefined, undefined, undefined, TEXT, RED], totalLabel: 'TOTAL DAS FATURAS', totalValues: [{ text: String(fats.reduce((a, f) => a + f.itens.length, 0)), color: PRIMARY }, { text: brl(sum(fats, f => f.total)), color: RED }] }));
-    if (fats.some(f => !f.fechada)) children.push(gap(40), para(tr('Atenção: as faturas ainda não fecharam. O valor acima soma só as compras lançadas até agora e será corrigido quando a fatura fechar.', 10, RED, false, true)));
-  }
-  const maiores = [...rows].filter(r => !r.cartao).sort((a, b) => b.valor - a.valor).slice(0, 5);
-  if (maiores.length) {
-    children.push(gap(60), para(tr(fats.length ? 'Maiores contas do período (fora os cartões)' : 'Maiores contas do período', 10, PRIMARY_MED, true), { spacing: { after: 40 } }));
-    children.push(dataTable(['Venc.', 'Unidade', 'Fornecedor / descrição', 'Valor'], [1000, 1500, 4860, 2000],
-      maiores.map(x => [`${dm(x.venc)} ${dia(x.venc)}`, UN[x.unidade], `${x.nome} — ${x.descricao.trim()}`, brl(x.valor)]), { valueColors: [undefined, undefined, undefined, RED] }));
-  }
-  children.push(gap(40), para([tr('Lista completa: ', 10, TEXT_MED), link('planilha de contas a pagar', links.cp, 10)]));
-}
-cpSection(`4. Contas a pagar — semana seguinte (${dm(d.j1[0])} a ${dm(d.j1[1])})`, d.pagar_j1, `Terça ${dbr(d.j1[0])} a segunda ${dbr(d.j1[1])} · pagamento antecipado na segunda ${dbr(d.segunda_pagamento)}`);
-cpSection(`5. Contas a pagar — outra semana (${dm(d.j2[0])} a ${dm(d.j2[1])})`, d.pagar_j2, `Terça ${dbr(d.j2[0])} a segunda ${dbr(d.j2[1])} · valor mínimo a faturar na próxima semana`);
+// 4. Contas a pagar (somente totais)
+children.push(...secHead('4. Contas a pagar — totais'));
+const cols = [abertoAteSeg, d.pagar_j1, d.pagar_j2];
+const cpHead = [`Até seg ${dm(d.segunda_pagamento)}`, `${dm(d.j1[0])} a ${dm(d.j1[1])}`, `${dm(d.j2[0])} a ${dm(d.j2[1])}`];
+const cw = [2760, 2200, 2200, 2200];
+const v = x => ({ t: x ? brl(x) : '—', c: x ? RED : TEXT_MED });
+const totRow = { label: 'TOTAL', total: true, vals: cols.map(c => ({ t: brl(sum(c)), c: RED })) };
+children.push(para(tr('Por unidade', 10, PRIMARY_MED, true), { spacing: { after: 40 } }));
+children.push(grid(['Unidade', ...cpHead], cw, [...units.filter(u => cols.some(c => c.some(r => r.unidade === u))).map(u => ({ label: UN[u], vals: cols.map(c => v(sum(c.filter(r => r.unidade === u)))) })), totRow]));
+children.push(gap(80), para(tr('Por conta de pagamento', 10, PRIMARY_MED, true), { spacing: { after: 40 } }));
+const ORD = ['Sicredi 33', 'Sicredi 88', 'Sicredi 95', 'Nubank Dra. Rayssa', 'Nubank Dr. Deusdedit', 'Caixa / espécie', 'Conta não informada'];
+children.push(grid(['Conta', ...cpHead], cw, [...ORD.filter(k => cols.some(c => c.some(r => r.conta_pag === k))).map(k => ({ label: k, vals: cols.map(c => v(sum(c.filter(r => r.conta_pag === k)))) })), totRow]));
+const fatAb = d.faturas.filter(f => !f.fechada);
+children.push(gap(60));
+if (fatAb.length) children.push(para([tr('⚠ Alerta: ', 10.5, RED, true), tr(`faturas dos cartões PJ ainda não fechadas (vencimento dia 8), valor parcial: ${fatAb.map(f => `PJ ${f.cartao} ${brl(f.total)}`).join(' · ')}. Já estão incluídas acima, na conta que paga cada cartão.`, 10.5)], { spacing: { after: 60 } }));
+if (d.pagar_atraso.length) children.push(para([tr('● Crítico: ', 10.5, ORANGE, true), tr(d.pagar_atraso.length > 1 ? `${d.pagar_atraso.length} contas vencidas e não baixadas na Nibo, total ` : '1 conta vencida e não baixada na Nibo, de ', 10.5), tr(brl(sum(d.pagar_atraso)), 10.5, ORANGE, true), tr('. Se já foram pagas, enviar o comprovante.', 10.5)], { spacing: { after: 60 } }));
+children.push(para([tr('Lista completa, conta por conta: ', 10.5, TEXT_MED), link('planilha de contas a pagar', links.cp, 10.5)]));
 
-// 6. Em aberto até segunda + vencidos
-children.push(...secHead(`6. Ainda em aberto até segunda ${dm(d.segunda_pagamento)}`));
-children.push(note(`Contas vencidas e não baixadas, mais as que vencem de ${dbr(d.cutoff)} a ${dbr(d.segunda_pagamento)}.`));
-children.push(dataTable(['Unidade', 'Itens', 'Valor'], [3360, 1500, 4500], byUnit(abertoAteSeg).map(g => [UN[g.u], String(g.rows.length), brl(sum(g.rows))]),
-  { valueColors: [undefined, TEXT, RED], totalLabel: 'TOTAL', totalValues: [{ text: String(abertoAteSeg.length), color: PRIMARY }, { text: brl(tAb), color: RED }] }));
-if (d.pagar_atraso.length) {
-  children.push(gap(60), para(tr('Vencidas e não baixadas na Nibo', 10, RED, true), { spacing: { after: 40 } }));
-  children.push(dataTable(['Venc.', 'Unidade', 'Fornecedor / descrição', 'Dias', 'Valor'], [1000, 1400, 4260, 700, 2000],
-    d.pagar_atraso.map(x => [dm(x.venc), UN[x.unidade], `${x.nome} — ${x.descricao.trim()}`, String(Math.round((new Date(d.cutoff) - new Date(x.venc)) / 864e5)), brl(x.valor)]),
-    { valueColors: [undefined, undefined, undefined, TEXT, RED] }));
-}
-
-// 7. A receber previsto
-children.push(...secHead('7. A receber previsto'));
+// 5. A receber e não identificados
+children.push(...secHead('5. A receber e lançamentos a identificar'));
 const rec = d.receber_j1.concat(d.receber_j2);
-if (rec.length) {
-  children.push(dataTable(['Prev.', 'Unidade', 'Pagador / descrição', 'Valor'], [1000, 1500, 4860, 2000],
-    rec.map(x => [dm(x.venc), UN[x.unidade], `${x.nome} — ${x.descricao.trim()}`, brl(x.valor)]),
-    { valueColors: [undefined, undefined, undefined, PRIMARY], totalLabel: 'TOTAL', totalValues: [{ text: brl(sum(rec)) }] }));
-} else children.push(para(tr('Nenhum recebimento agendado na Nibo para os dois períodos.', 11, TEXT_MED, false, true)));
-children.push(gap(40), note('A maior parte da receita da clínica entra no ato do atendimento e não fica agendada; por isso a meta de faturamento da seção 2 é o número de referência.'));
-
-// 8. Não identificados
-children.push(...secHead('8. Lançamentos não identificados'));
 const ni = d.nao_identificados;
-const grupos = [['Despesas', ni.filter(x => x.tipo.startsWith('Despesa'))], ['Receitas', ni.filter(x => x.tipo.startsWith('Receita'))]].filter(g => g[1].length);
-children.push(dataTable(['Tipo', 'Quantidade', 'Valor'], [3360, 1500, 4500], grupos.map(g => [g[0], String(g[1].length), brl(sum(g[1]))]),
-  { valueColors: [undefined, TEXT, TEXT] }));
-children.push(gap(60), para([tr('Precisamos da sua ajuda: ', 11, PRIMARY, true), tr('abra a '), link('planilha de lançamentos a identificar', links.ni), tr(' e preencha, em cada linha, o que é e de qual unidade é (Cajazeiras, Triunfo, Obra ou Sócios). A Aridus atualiza a Nibo com as suas respostas.')]));
-
-// 9. Movimentações
-children.push(...secHead(`9. Movimentações da semana (${dm(d.semana[0])} a ${dm(d.semana[1])})`));
-const mw = [820, 2300, 3040, 1600, 1600];
-for (const g of byUnit(d.mov)) {
-  children.push(para(tr(UN[g.u], 10.5, PRIMARY_MED, true), { spacing: { before: 80, after: 40 } }));
-  const rows = [...g.rows].sort((a, b) => (a.tipo + a.data).localeCompare(b.tipo + b.data))
-    .map(m => [dm(m.data), m.nome, (m.descricao || ''), m.tipo === 'Entrada' ? brl(m.valor) : '—', m.tipo === 'Saída' ? brl(m.valor) : '—']);
-  children.push(dataTable(['Data', 'Nome', 'Descrição', 'Entrada', 'Saída'], mw, rows,
-    { valueColors: [undefined, undefined, undefined, PRIMARY, RED], totalLabel: 'TOTAL ' + UN[g.u].toUpperCase(),
-      totalValues: [{ text: brl(sum(g.rows.filter(m => m.tipo === 'Entrada'))) }, { text: brl(sum(g.rows.filter(m => m.tipo === 'Saída'))), color: RED }] }));
-}
+children.push(para([tr('A receber agendado até ' + dbr(d.j2[1]) + ': ', 11, PRIMARY, true), rec.length ? tr(brl(sum(rec)), 11, GREEN, true) : tr('nenhum', 11, TEXT_MED, false, true), tr(rec.length ? ` (${rec.length} parcela${rec.length > 1 ? 's' : ''})` : '')], { spacing: { after: 60 } }));
+children.push(para([tr('Lançamentos a identificar: ', 11, PRIMARY, true), tr(`${ni.length} itens, `), tr(brl(sum(ni)), 11, ni.length ? ORANGE : GREEN, true), tr('. Preencha o que é e a unidade de cada um na '), link('planilha de lançamentos a identificar', links.ni), tr('.')]));
 
 // 10. Pendências
-children.push(...secHead('10. Pendências'));
+children.push(...secHead('6. Pendências'));
 const pendRows = [];
 if (ni.length) pendRows.push(['Clínica', `Preencher a planilha de lançamentos a identificar (${ni.length} itens, ${brl(sum(ni))}).`]);
-for (const x of d.pagar_atraso) pendRows.push(['Clínica / Aridus', `Confirmar se ${x.descricao.trim()} (${x.nome}, venc. ${dbr(x.venc)}, ${brl(x.valor)}) foi pago. Se foi, enviar o comprovante para baixa na Nibo.`]);
-if (pend.length) pendRows.push(['Aridus BPO', `Lançar na Nibo os ${sum(pend, s => s.pend_qtd)} movimentos de extrato ainda pendentes (${pend.map(s => nomeCurto(s.conta)).join(', ')}).`]);
+if (d.pagar_atraso.length) pendRows.push(['Clínica', (d.pagar_atraso.length > 1 ? `Confirmar o pagamento das ${d.pagar_atraso.length} contas vencidas e não baixadas (` : `Confirmar o pagamento da conta vencida e não baixada (`) + `${brl(sum(d.pagar_atraso))}, detalhe na planilha de contas a pagar) e enviar o comprovante.`]);
+if (false) pendRows.push(['Aridus BPO', `Lançar na Nibo os ${sum(pend, s => s.pend_qtd)} movimentos de extrato ainda pendentes (${pend.map(s => nomeCurto(s.conta)).join(', ')}).`]);
 pendRows.push(['Clínica', 'Enviar notas, boletos e comprovantes novos da semana para lançamento.']);
 const pw = [2100, PW - 2100];
 children.push(table([
@@ -242,7 +214,7 @@ children.push(table([
 ], pw));
 
 // 11. Observações
-children.push(...secHead('11. Observações da equipe Aridus BPO'));
+children.push(...secHead('7. Observações da equipe Aridus BPO'));
 const obs = links.obs || [];
 obs.forEach((t, i) => {
   children.push(table([new TableRow({ cantSplit: true, children: [

@@ -109,6 +109,16 @@ def faturas(ini,fim):
         if any(r['account']['id']==k and r.get('isTransfer') and r['date'][:7]==mes for r in R): continue
         out.append(dict(cartao=c,venc=venc,fechada=fechada,itens=itens,total=round(sum(i['valor'] for i in itens),2)))
     return out
+RE_CONTA=re.compile(r'(?:FATURA CART[AÃ]O PJ|CONTA|CART[AÃ]O|EMPR[EÉ]STIMO|CNPJ)\s*-?\s*(33|88|95)\b|-\s*(33|88|95)\s*$')
+def conta_pag(r):
+    """Conta de onde sai o pagamento, deduzida do texto do lançamento (a Nibo não guarda isso no agendamento)."""
+    t=(r['nome']+' '+r['descricao'].strip()).upper()
+    m=RE_CONTA.search(t)
+    if m: return 'Sicredi '+(m.group(1) or m.group(2))
+    if 'NUBANK' in t and 'DEUSDEDIT' in t: return 'Nubank Dr. Deusdedit'
+    if 'NUBANK' in t: return 'Nubank Dra. Rayssa'
+    if 'ESPECIE' in t or 'ESPÉCIE' in t: return 'Caixa / espécie'
+    return 'Conta não informada'
 def sched_cp(ini,fim):
     rows=[r for r in sched(DEB,ini,fim) if not card_of_sched(next(x for x in DEB if x['scheduleId']==r['id']))]
     fats=faturas(ini,fim)
@@ -125,6 +135,8 @@ pagar_atraso=[r for r in sched(DEB,dt.date(2000,1,1),CUT-dt.timedelta(days=1)) i
 pagar_aberto,fat_ab=sched_cp(CUT,OPEN_NOW[1])
 pagar_j1,fat_j1=sched_cp(*J1); pagar_j2,fat_j2=sched_cp(*J2)
 receber_j1=sched(CRE,*J1); receber_j2=sched(CRE,*J2); receber_atraso=sched(CRE,dt.date(2000,1,1),CUT-dt.timedelta(days=1))
+for _L in (pagar_atraso,pagar_aberto,pagar_j1,pagar_j2):
+    for _r in _L: _r['conta_pag']=conta_pag(_r)
 # não identificados: realizados desde o início do mês anterior ao corte + CP/CR em aberto + extrato pendente
 ini_ni=dt.date(CUT.year,CUT.month,1)
 ni=[]

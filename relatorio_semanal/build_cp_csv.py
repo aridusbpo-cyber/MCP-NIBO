@@ -9,13 +9,13 @@ W=[(f"1) SEMANA SEGUINTE {br(j1[0])[:5]} a {br(j1[1])[:5]} (pagar na segunda {br
    (f"2) OUTRA SEMANA {br(j2[0])[:5]} a {br(j2[1])[:5]} (meta de faturamento)",d['pagar_j2']),
    (f"0) AINDA EM ABERTO ATÉ {br(ab[1])[:5]} (vencidos e a vencer)",d['pagar_atraso']+d['pagar_aberto'])]
 b=io.StringIO();w=csv.writer(b)
-w.writerow(['Período','Unidade','Vencimento','Dia','Fornecedor','Descrição','Categoria','Valor (R$)','Situação'])
+w.writerow(['Período','Unidade','Vencimento','Dia','Fornecedor','Descrição','Categoria','Valor (R$)','Situação','Conta de pagamento'])
 for nome,rows in W:
     for u in d['units']:
         rs=[x for x in rows if x['unidade']==u]
         if not rs: continue
         for x in sorted(rs,key=lambda r:(r['venc'],r['nome'])):
-            w.writerow([nome,UN[u],br(x['venc']),dia(x['venc']),x['nome'],x['descricao'].strip(),x['categoria'],money(x['valor']),'VENCIDO' if x['venc']<d['cutoff'] else ('Fatura NÃO FECHADA (parcial)' if x.get('fatura_aberta') else 'A vencer')])
+            w.writerow([nome,UN[u],br(x['venc']),dia(x['venc']),x['nome'],x['descricao'].strip(),x['categoria'],money(x['valor']),'VENCIDO' if x['venc']<d['cutoff'] else ('Fatura NÃO FECHADA (parcial)' if x.get('fatura_aberta') else 'A vencer'),x.get('conta_pag','')])
         w.writerow([nome,UN[u],'','','','SUBTOTAL '+UN[u].upper(),'',money(sum(x['valor'] for x in rs)),''])
     w.writerow([nome,'TOTAL','','','','TOTAL DO PERÍODO','',money(sum(x['valor'] for x in rows)),''])
     w.writerow([])
