@@ -21,6 +21,8 @@ python3 <repo>/relatorio_semanal/build_cp_csv.py dados_<sexta>.json      # CSV d
 NODE_PATH=$(npm root -g) node <repo>/relatorio_semanal/gerar_relatorio.js dados_<sexta>.json links.json Relatorio_Semanal_DrOralClinic_<sexta>.docx
 ```
 
+Versão HTML (arquivo único): `node <repo>/relatorio_semanal/gerar_html.js dados_<sexta>.json links.json Relatorio_Semanal_DrOralClinic_<sexta>.html`
+
 `links.json` traz `cp` e `ni` (links das planilhas no Google Drive) e `obs` (observações da semana).
 
 As planilhas ficam no Drive em `09. D R Oral Clinic › Planilhas › Lançamentos a identificar` e `› Contas a pagar previsão`.
