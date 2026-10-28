@@ -17,7 +17,8 @@ Gera, toda sexta-feira às 17h (Brasília), o relatório semanal da DR Oral (uni
 mkdir -p /tmp/dr && cd /tmp/dr
 python3 <repo>/relatorio_semanal/fetch_nibo.py
 python3 <repo>/relatorio_semanal/build_data.py AAAA-MM-DD(sexta) AAAA-MM-DD(corte)
-python3 <repo>/relatorio_semanal/build_cp_csv.py dados_<sexta>.json      # CSV das contas a pagar
+python3 <repo>/relatorio_semanal/build_cp_csv.py dados_<sexta>.json      # CP.csv (contas a pagar)
+python3 <repo>/relatorio_semanal/build_ni_csv.py dados_<sexta>.json      # NI.csv (lançamentos a identificar)
 NODE_PATH=$(npm root -g) node <repo>/relatorio_semanal/gerar_relatorio.js dados_<sexta>.json links.json Relatorio_Semanal_DrOralClinic_<sexta>.docx
 ```
 
