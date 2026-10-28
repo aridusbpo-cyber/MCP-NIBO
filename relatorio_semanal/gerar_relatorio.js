@@ -190,7 +190,7 @@ children.push(grid(['Conta', ...cpHead], cw, [...ORD.filter(k => cols.some(c => 
 const fatAb = d.faturas.filter(f => !f.fechada);
 children.push(gap(60));
 if (fatAb.length) children.push(para([tr('⚠ Alerta: ', 10.5, RED, true), tr(`faturas dos cartões PJ ainda não fechadas (vencimento dia 8), valor parcial: ${fatAb.map(f => `PJ ${f.cartao} ${brl(f.total)}`).join(' · ')}. Já estão incluídas acima, na conta que paga cada cartão.`, 10.5)], { spacing: { after: 60 } }));
-if (d.pagar_atraso.length) children.push(para([tr('● Crítico: ', 10.5, ORANGE, true), tr(d.pagar_atraso.length > 1 ? `${d.pagar_atraso.length} contas vencidas e não baixadas na Nibo, total ` : '1 conta vencida e não baixada na Nibo, de ', 10.5), tr(brl(sum(d.pagar_atraso)), 10.5, ORANGE, true), tr('. Se já foram pagas, enviar o comprovante.', 10.5)], { spacing: { after: 60 } }));
+if (d.pagar_atraso.length) children.push(para([tr('● Crítico: ', 10.5, ORANGE, true), tr(d.pagar_atraso.length > 1 ? `${d.pagar_atraso.length} contas vencidas e não baixadas na Nibo, total ` : '1 conta vencida e não baixada na Nibo, de ', 10.5), tr(brl(sum(d.pagar_atraso)), 10.5, ORANGE, true), tr(d.pagar_atraso.length > 1 ? '. Se já foram pagas, enviar os comprovantes.' : '. Se já foi paga, enviar o comprovante.', 10.5)], { spacing: { after: 60 } }));
 children.push(para([tr('Lista completa, conta por conta: ', 10.5, TEXT_MED), link('planilha de contas a pagar', links.cp, 10.5)]));
 
 // 5. A receber e não identificados
