@@ -30,3 +30,6 @@ Nada é enviado ao cliente sem pedido explícito da Aridus.
 
 ## Quanto precisa entrar em cada conta (necessidade.js)
 Para cada conta de pagamento: saldo de hoje − (vencidos + contas até a segunda seguinte) = falta até a segunda de pagamento. A conta das contas da outra semana, menos a sobra da mesma conta, dá o que é preciso faturar. A sobra de uma conta não cobre a outra. "Conta não informada" não tem saldo, então entra inteira como falta.
+
+## HTML interativo (gerar_html.js)
+A página inicial mostra só os totais. Cada valor sublinhado ou cartão com "ver detalhes" abre uma janela com os lançamentos que formam aquele número (contas a pagar por período, unidade e conta; movimentos da semana por conta e unidade; faturas dos cartões; vencidos; a receber; a identificar). O botão "Voltar" (ou o voltar do celular) retorna ao resumo. Os dados ficam embutidos no próprio arquivo, que funciona offline.
