@@ -131,7 +131,7 @@ children.push(gap(40), note(`Saldos calculados na Nibo (saldo inicial + lançame
 children.push(...secHead('2. Resumo: o que precisa estar na conta'));
 const kw = [2340, 2340, 2340, 2340];
 const kpiHead = ['Disponível hoje', `A pagar até seg ${dm(d.segunda_pagamento)}`, `Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, `Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`];
-const kpiSub = ['todas as contas', 'vencidos + 28/10 a 02/11'.replace('28/10', dm(d.cutoff)).replace('02/11', dm(d.segunda_pagamento)), `pagar na segunda ${dm(d.segunda_pagamento)}`, 'meta de faturamento da próxima semana'];
+const kpiSub = ['todas as contas', 'vencidos + 28/10 a 02/11'.replace('28/10', dm(d.cutoff)).replace('02/11', dm(d.segunda_pagamento)), `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · inclui faturas de cartão ainda não fechadas' : ''), 'meta de faturamento da próxima semana'];
 const kpiVal = [[brl(totalCaixa), PRIMARY], [brl(tAb), RED], [brl(tJ1), RED], [brl(tJ2), RED]];
 children.push(table([
   new TableRow({ cantSplit: true, children: kpiHead.map((h, i) => cell([tr(h.toUpperCase(), 9, PRIMARY, true)], { w: kw[i], fill: i === 2 ? GOLD_TINT : BG_TINT, borders: { top: line(BORDER), bottom: line(BORDER), left: line(BORDER), right: line(BORDER) }, align: AlignmentType.CENTER })) }),
@@ -167,9 +167,17 @@ function cpSection(titulo, rows, sub) {
   const groups = byUnit(rows);
   children.push(dataTable(['Unidade', 'Itens', 'Valor'], [3360, 1500, 4500], groups.map(g => [UN[g.u], String(g.rows.length), brl(sum(g.rows))]),
     { valueColors: [undefined, TEXT, RED], totalLabel: 'TOTAL', totalValues: [{ text: String(rows.length), color: PRIMARY }, { text: brl(sum(rows)), color: RED }] }));
-  const maiores = [...rows].sort((a, b) => b.valor - a.valor).slice(0, 5);
+  const fats = d.faturas.filter(f => rows.some(r => r.cartao === f.cartao && r.venc === f.venc));
+  if (fats.length) {
+    children.push(gap(60), para(tr('Faturas dos cartões PJ (vencimento dia 8)', 10, PRIMARY_MED, true), { spacing: { after: 40 } }));
+    children.push(dataTable(['Cartão', 'Venc.', 'Situação', 'Compras', 'Valor previsto'], [1700, 1100, 3460, 1100, 2000],
+      fats.map(f => [`Cartão PJ ${f.cartao}`, `${dm(f.venc)} ${dia(f.venc)}`, f.fechada ? 'Fatura fechada' : 'Ainda não fechada · valor parcial', String(f.itens.length), brl(f.total)]),
+      { valueColors: [undefined, undefined, undefined, TEXT, RED], totalLabel: 'TOTAL DAS FATURAS', totalValues: [{ text: String(fats.reduce((a, f) => a + f.itens.length, 0)), color: PRIMARY }, { text: brl(sum(fats, f => f.total)), color: RED }] }));
+    if (fats.some(f => !f.fechada)) children.push(gap(40), para(tr('Atenção: as faturas ainda não fecharam. O valor acima soma só as compras lançadas até agora e será corrigido quando a fatura fechar.', 10, RED, false, true)));
+  }
+  const maiores = [...rows].filter(r => !r.cartao).sort((a, b) => b.valor - a.valor).slice(0, 5);
   if (maiores.length) {
-    children.push(gap(60), para(tr('Maiores contas do período', 10, PRIMARY_MED, true), { spacing: { after: 40 } }));
+    children.push(gap(60), para(tr(fats.length ? 'Maiores contas do período (fora os cartões)' : 'Maiores contas do período', 10, PRIMARY_MED, true), { spacing: { after: 40 } }));
     children.push(dataTable(['Venc.', 'Unidade', 'Fornecedor / descrição', 'Valor'], [1000, 1500, 4860, 2000],
       maiores.map(x => [`${dm(x.venc)} ${dia(x.venc)}`, UN[x.unidade], `${x.nome} — ${x.descricao.trim()}`, brl(x.valor)]), { valueColors: [undefined, undefined, undefined, RED] }));
   }

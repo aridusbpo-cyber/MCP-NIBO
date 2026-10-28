@@ -15,8 +15,15 @@ for nome,rows in W:
         rs=[x for x in rows if x['unidade']==u]
         if not rs: continue
         for x in sorted(rs,key=lambda r:(r['venc'],r['nome'])):
-            w.writerow([nome,UN[u],br(x['venc']),dia(x['venc']),x['nome'],x['descricao'].strip(),x['categoria'],money(x['valor']),'VENCIDO' if x['venc']<d['cutoff'] else 'A vencer'])
+            w.writerow([nome,UN[u],br(x['venc']),dia(x['venc']),x['nome'],x['descricao'].strip(),x['categoria'],money(x['valor']),'VENCIDO' if x['venc']<d['cutoff'] else ('Fatura NÃO FECHADA (parcial)' if x.get('fatura_aberta') else 'A vencer')])
         w.writerow([nome,UN[u],'','','','SUBTOTAL '+UN[u].upper(),'',money(sum(x['valor'] for x in rs)),''])
     w.writerow([nome,'TOTAL','','','','TOTAL DO PERÍODO','',money(sum(x['valor'] for x in rows)),''])
     w.writerow([])
+w.writerow(['COMPOSIÇÃO DAS FATURAS DOS CARTÕES PJ (vencimento dia 8)'])
+w.writerow(['Cartão','Vencimento','Situação','Unidade','Data','Fornecedor','Descrição','Valor (R$)','Origem'])
+for f in d.get('faturas',[]):
+    sit='Fechada' if f['fechada'] else 'NÃO FECHADA - valor parcial'
+    for i in sorted(f['itens'],key=lambda i:(i['unidade'],i['nome'])):
+        w.writerow(['Cartão PJ '+f['cartao'],br(f['venc']),sit,UN[i['unidade']],br(i['data']),i['nome'],i['descricao'].strip(),money(i['valor']),i['origem']])
+    w.writerow(['Cartão PJ '+f['cartao'],br(f['venc']),sit,'TOTAL','','','TOTAL DA FATURA',money(f['total']),''])
 open('CP.csv','w').write(b.getvalue());print(b.getvalue())
