@@ -19,7 +19,7 @@ for nome,rows in W:
         w.writerow([nome,UN[u],'','','','SUBTOTAL '+UN[u].upper(),'',money(sum(x['valor'] for x in rs)),''])
     w.writerow([nome,'TOTAL','','','','TOTAL DO PERÍODO','',money(sum(x['valor'] for x in rows)),''])
     w.writerow([])
-w.writerow(['COMPOSIÇÃO DAS FATURAS DOS CARTÕES PJ (vencimento dia 8)'])
+w.writerow(['COMPOSIÇÃO DAS FATURAS DOS CARTÕES PJ (vencimento conforme o nome da conta do cartão na Nibo)'])
 w.writerow(['Cartão','Vencimento','Situação','Unidade','Data','Fornecedor','Descrição','Valor (R$)','Origem'])
 for f in d.get('faturas',[]):
     sit='Fechada' if f['fechada'] else 'NÃO FECHADA - valor parcial'

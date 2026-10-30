@@ -226,7 +226,7 @@ const ORD = ['Sicredi 33', 'Sicredi 88', 'Sicredi 95', 'Nubank Dra. Rayssa', 'Nu
 children.push(grid(['Conta', ...cpHead], cw, [...ORD.filter(k => cols.some(c => c.some(r => r.conta_pag === k))).map(k => ({ label: k, vals: cols.map(c => v(sum(c.filter(r => r.conta_pag === k)))) })), totRow]));
 const fatAb = d.faturas.filter(f => !f.fechada);
 children.push(gap(60));
-if (fatAb.length) children.push(para([tr('⚠ Alerta: ', 10.5, RED, true), tr(`faturas dos cartões PJ ainda não fechadas (vencimento dia 8), valor parcial: ${fatAb.map(f => `PJ ${f.cartao} ${brl(f.total)}`).join(' · ')}. Já estão incluídas acima, na conta que paga cada cartão.`, 10.5)], { spacing: { after: 60 } }));
+if (fatAb.length) children.push(para([tr('⚠ Alerta: ', 10.5, RED, true), tr(`faturas dos cartões PJ ainda não fechadas, valor parcial: ${fatAb.map(f => `PJ ${f.cartao} (venc. ${dm(f.venc)}) ${brl(f.total)}`).join(' · ')}. Já estão incluídas acima, na conta que paga cada cartão.`, 10.5)], { spacing: { after: 60 } }));
 if (d.pagar_atraso.length) children.push(para([tr('● Crítico: ', 10.5, ORANGE, true), tr(d.pagar_atraso.length > 1 ? `${d.pagar_atraso.length} contas vencidas e não baixadas na Nibo, total ` : '1 conta vencida e não baixada na Nibo, de ', 10.5), tr(brl(sum(d.pagar_atraso)), 10.5, ORANGE, true), tr(d.pagar_atraso.length > 1 ? '. Se já foram pagas, enviar os comprovantes.' : '. Se já foi paga, enviar o comprovante.', 10.5)], { spacing: { after: 60 } }));
 children.push(para([tr('Lista completa, conta por conta: ', 10.5, TEXT_MED), link('planilha de contas a pagar', links.cp, 10.5)]));
 

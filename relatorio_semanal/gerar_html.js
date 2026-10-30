@@ -41,12 +41,12 @@ let nDet = 0;
 const vencidos = new Set(d.pagar_atraso.map(r => r.id));
 const FAT = {};
 d.faturas.forEach(f => {
-  FAT[f.cartao] = det(`Fatura Cartão PJ ${f.cartao} — venc. ${dm(f.venc)}`, f.itens.map(i => ({ ...i, conta_pag: `Cartão PJ ${f.cartao}` })), 'fat',
+  FAT[f.cartao + f.venc] = det(`Fatura Cartão PJ ${f.cartao} — venc. ${dm(f.venc)}`, f.itens.map(i => ({ ...i, conta_pag: `Cartão PJ ${f.cartao}` })), 'fat',
     f.fechada ? 'Fatura fechada.' : 'Fatura ainda não fechada: valor parcial, soma das compras lançadas até agora.');
 });
 function slim(r, kind) {
   const o = { d: r.venc || r.data || '', u: UN[r.unidade] || r.unidade || '', n: r.nome || '', x: r.descricao || '', c: r.categoria || '', v: r.valor };
-  if (kind === 'pagar') { o.a = r.conta_pag || ''; if (vencidos.has(r.id)) o.t = 'vencido'; if (r.cartao) { o.f = FAT[r.cartao]; if (r.fatura_aberta) o.t = 'fatura parcial'; } }
+  if (kind === 'pagar') { o.a = r.conta_pag || ''; if (vencidos.has(r.id)) o.t = 'vencido'; if (r.cartao) { o.f = FAT[r.cartao + r.venc]; if (r.fatura_aberta) o.t = 'fatura parcial'; } }
   if (kind === 'mov') { o.a = nomeCurto(r.conta || ''); o.t = r.tipo === 'Entrada' ? 'entrada' : 'saída'; }
   if (kind === 'fat') o.a = r.origem || '';
   if (kind === 'ni') { o.a = nomeCurto(r.conta || ''); o.t = (r.tipo || '').toLowerCase(); o.c = r.motivo || ''; }
@@ -154,7 +154,7 @@ ${sec('4. Contas a pagar — totais')}
 ${grid(['Unidade', ...cpHead], [...units.filter(u => cols.some(c => c.some(r => r.unidade === u))).map(u => ({ label: UN[u], vals: cols.map((c, i) => v(c.filter(r => r.unidade === u), `${UN[u]} — ${cpTit[i]}`)) })), totRow])}
 <h3>Por conta de pagamento</h3>
 ${grid(['Conta', ...cpHead], [...ORD.filter(k => cols.some(c => c.some(r => r.conta_pag === k))).map(k => ({ label: k, vals: cols.map((c, i) => v(c.filter(r => r.conta_pag === k), `${k} — ${cpTit[i]}`)) })), totRow])}
-${fatAb.length ? `<p><b class="alert">⚠ Alerta:</b> faturas dos cartões PJ ainda não fechadas (vencimento dia 8), valor parcial: ${fatAb.map(f => `PJ ${f.cartao} ${lk(brl(f.total), FAT[f.cartao])}`).join(' · ')}. Já estão incluídas acima, na conta que paga cada cartão.</p>` : ''}
+${fatAb.length ? `<p><b class="alert">⚠ Alerta:</b> faturas dos cartões PJ ainda não fechadas, valor parcial: ${fatAb.map(f => `PJ ${f.cartao} (venc. ${dm(f.venc)}) ${lk(brl(f.total), FAT[f.cartao + f.venc])}`).join(' · ')}. Já estão incluídas acima, na conta que paga cada cartão.</p>` : ''}
 ${d.pagar_atraso.length ? `<p><b class="crit">● Crítico:</b> ${d.pagar_atraso.length > 1 ? `${d.pagar_atraso.length} contas vencidas e não baixadas na Nibo, total` : '1 conta vencida e não baixada na Nibo, de'} ${lk(brl(sum(d.pagar_atraso)), det('Contas vencidas e não baixadas na Nibo', d.pagar_atraso), 'crit b')}. ${d.pagar_atraso.length > 1 ? 'Se já foram pagas, enviar os comprovantes.' : 'Se já foi paga, enviar o comprovante.'}</p>` : ''}
 <p class="muted">Lista completa, conta por conta: <a href="${links.cp}" target="_blank" rel="noopener">planilha de contas a pagar</a></p>
 

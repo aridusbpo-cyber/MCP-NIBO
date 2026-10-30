@@ -82,28 +82,31 @@ def sched(L,ini,fim):
                     motivo=motivo(x)))
     return sorted(out,key=lambda r:(r['venc'],r['nome']))
 
-# Cartões PJ (33, 88, 95): vencimento dia 8. A previsão da fatura soma as compras já lançadas na conta
+# Cartões PJ (33, 88, 95): vencimento no dia indicado no nome da conta (padrão dia 8). A previsão da fatura soma as compras já lançadas na conta
 # do cartão com data no período + agendamentos em aberto que citam "CARTAO 33/88/95". Até o usuário
 # informar o fechamento (3º argumento), a fatura sai marcada como NÃO FECHADA (valor parcial).
 FECHADAS=set((sys.argv[3].split(',') if len(sys.argv)>3 and sys.argv[3] else []))
-CARDS={k:re.search(r'(\d+)\s*$',a['name']).group(1) for k,a in acc.items() if 'Cartão PJ' in a['name']}
+# nome da conta na Nibo: "Cartão PJ - 33 todo dia 15" -> cartão 33, vencimento dia 15 (sem "dia nn", assume dia 8)
+CARDS={k:re.search(r'Cart[aã]o PJ\s*-?\s*(\d+)',a['name']).group(1) for k,a in acc.items() if 'Cartão PJ' in a['name']}
+DIA_VENC={CARDS[k]:int((re.search(r'dia\s*(\d+)',a['name'],re.I) or re.search(r'(8)','8')).group(1)) for k,a in acc.items() if k in CARDS}
 RE_CARD=re.compile(r'CART[AÃ]O\s*(?:PJ\s*)?-?\s*(33|88|95)\b',re.I)
 def card_of_sched(x):
     m=RE_CARD.search((x.get('description') or '')+' '); return m.group(1) if m else None
 def faturas(ini,fim):
-    det=collections.defaultdict(list)   # (cartao, mes) -> itens (unidade, valor, nome, desc, data)
+    det=collections.defaultdict(list)   # (cartao, vencimento) -> itens (unidade, valor, nome, desc, data)
     for x in P:
         k=x['account']['id']
-        if k in CARDS and not x.get('isTransfer') and ini<=D(x['date'])<=fim:
-            for u,v in split(x): det[(CARDS[k],x['date'][:7])].append(dict(unidade=u,valor=round(v,2),nome=(x.get('stakeholder') or {}).get('name',''),descricao=x.get('description',''),data=x['date'][:10],origem='lançado no cartão'))
+        # a compra entra na fatura do mês do lançamento, que vence no dia indicado no nome da conta
+        if k in CARDS and not x.get('isTransfer') and ini<=D(f"{x['date'][:7]}-{DIA_VENC.get(CARDS[k],8):02d}")<=fim:
+            for u,v in split(x): det[(CARDS[k],f"{x['date'][:7]}-{DIA_VENC.get(CARDS[k],8):02d}")].append(dict(unidade=u,valor=round(v,2),nome=(x.get('stakeholder') or {}).get('name',''),descricao=x.get('description',''),data=x['date'][:10],origem='lançado no cartão'))
     for x in DEB:
         if x['isPaid'] or x['openValue']<=0.004 or not card_of_sched(x): continue
         if ini<=D(x['dueDate'])<=fim:
             cc=x.get('costCenters') or []; parts=[(ccname(c),c['value']) for c in cc] or [('Não identificado',x['openValue'])]; tot=sum(v for _,v in parts) or 1
-            for u,v in parts: det[(card_of_sched(x),x['dueDate'][:7])].append(dict(unidade=u,valor=round(x['openValue']*v/tot,2),nome=x['stakeholder']['name'],descricao=x.get('description',''),data=x['dueDate'][:10],origem='agendado'))
+            for u,v in parts: det[(card_of_sched(x),x['dueDate'][:10])].append(dict(unidade=u,valor=round(x['openValue']*v/tot,2),nome=x['stakeholder']['name'],descricao=x.get('description',''),data=x['dueDate'][:10],origem='agendado'))
     out=[]
-    for (c,mes),itens in sorted(det.items()):
-        venc=f"{mes}-08"; fechada=f"{c}:{mes}" in FECHADAS
+    for (c,venc),itens in sorted(det.items()):
+        mes=venc[:7]; fechada=f"{c}:{mes}" in FECHADAS
         # já paga? (transferência do banco para o cartão no mês)
         k=[a for a,n in CARDS.items() if n==c][0]
         if any(r['account']['id']==k and r.get('isTransfer') and r['date'][:7]==mes for r in R): continue
