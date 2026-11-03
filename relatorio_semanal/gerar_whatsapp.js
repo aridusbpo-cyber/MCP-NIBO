@@ -46,6 +46,11 @@ if (d.cutoff < d.ref) {
 L.push(`• Contas de ${dm(d.j1[0])} a ${dm(d.j1[1])} (pagar seg ${dm(seg)}): ${brl(sum(d.pagar_j1))}`);
 L.push(`• Contas de ${dm(d.j2[0])} a ${dm(d.j2[1])} (meta de faturamento): ${brl(sum(d.pagar_j2))}`);
 L.push('');
+L.push('🎯 *Quanto a empresa precisa ter*');
+nec.proj.forEach(p => L.push(`• Até ${dm(p.ate)}: precisa ${brl(p.precisa)} · tem ${brl(p.tem)} · ${p.saldoFinal >= 0 ? `sobra ${brl(p.saldoFinal)}` : `*falta ${brl(-p.saldoFinal)}*`}`));
+{ const p3 = nec.proj[nec.proj.length - 1];
+  if (p3.saldoFinal >= 0 && p3.faltaContas) L.push(`_No total o dinheiro cobre, mas não está nas contas que pagam. Faltam ${brl(p3.faltaContas)} nas contas no acumulado até ${dm(p3.ate)} (${brl(nec.tot('falta1'))} + ${brl(nec.tot('faturar'))}, detalhe abaixo): cobrir com transferência entre contas ou faturamento._`); }
+L.push('');
 L.push('🧮 *Quanto falta em cada conta*');
 const faltas = nec.rows.filter(r => r.falta1 || r.faturar);
 faltas.forEach(r => {
@@ -57,7 +62,7 @@ faltas.forEach(r => {
 const cobertas = nec.rows.filter(r => !r.falta1 && !r.faturar && r.saldo !== null).map(r => r.conta);
 if (cobertas.length) L.push(`✅ Cobertas: ${cobertas.join(', ')}.`);
 if (!faltas.length) L.push('✅ Todas as contas cobrem as duas semanas.');
-L.push(`*Total que falta: ${brl(nec.tot('falta1'))} até ${dm(d.j1[1])} e ${brl(nec.tot('faturar'))} até ${dm(d.j2[1])}.*`);
+L.push(`*Total que falta: ${brl(nec.tot('falta1'))} até ${dm(d.j1[1])} e mais ${brl(nec.tot('faturar'))} até ${dm(d.j2[1])}.*`);
 L.push('');
 L.push(`📈 *Realizado (${dm(d.semana[0])} a ${dm(d.semana[1])})*`);
 L.push(`Entradas ${brl(ent)} · Saídas ${brl(sai)} · Resultado *${brl(ent - sai)}*`);

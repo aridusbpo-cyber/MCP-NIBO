@@ -167,6 +167,25 @@ const NEC_ORD = ['Sicredi 33', 'Sicredi 88', 'Sicredi 95', 'Nubank Dra. Rayssa',
 const nec = require('./necessidade')(d, NEC_ORD);
 const segJ2 = addDays(d.j2[0], -1);
 const ok = { t: 'coberto', c: GREEN, b: true };
+// projeção acumulada: quanto a empresa precisa ter para honrar os compromissos
+{
+  const pw = [2200, 1840, 1840, 1840, 1640];
+  const hb = { top: line(ACCENT), bottom: line(ACCENT), left: none, right: none };
+  const H = ['Para pagar tudo até', 'Precisa ter', 'Tem hoje', 'Sobra no total', 'Falta nas contas'];
+  children.push(gap(80), para(tr('Projeção: quanto a empresa precisa ter para honrar os compromissos', 12, PRIMARY, true), { spacing: { after: 60 }, keepNext: true }));
+  children.push(table([
+    new TableRow({ cantSplit: true, tableHeader: true, children: H.map((h, i) => cell([tr(h.toUpperCase(), 8, PRIMARY, true)], { w: pw[i], fill: BG_TINT, borders: hb, align: i ? AlignmentType.RIGHT : AlignmentType.LEFT })) }),
+    ...nec.proj.map((p, k) => {
+      const last = k === nec.proj.length - 1, fill = last ? GOLD_TINT : (k % 2 ? ROW_ALT : WHITE);
+      const v = [[`segunda ${dm(p.ate)}`, PRIMARY], [brl(p.precisa), RED], [brl(p.tem), TEXT], [brl(p.saldoFinal), sign(p.saldoFinal)], [p.faltaContas ? brl(p.faltaContas) : '—', p.faltaContas ? ORANGE : GREEN]];
+      return new TableRow({ cantSplit: true, children: v.map((x, i) => cell([tr(x[0], 9, x[1], i !== 2)], { w: pw[i], fill, align: i ? AlignmentType.RIGHT : AlignmentType.LEFT })) });
+    }),
+  ], pw));
+  const p3 = nec.proj[nec.proj.length - 1];
+  children.push(para(tr(`“Precisa ter” soma tudo o que vence até a data (acumulado, incluindo ${PREV ? 'o já programado e ' : ''}os vencidos sem baixa). “Falta nas contas” é o que o saldo de cada conta não cobre, somado; é a soma acumulada das FALTAS do fluxo abaixo.` +
+    (p3.saldoFinal >= 0 && p3.faltaContas ? ` No total a empresa tem o suficiente até ${dm(p3.ate)}, mas o dinheiro não está nas contas que pagam: a falta precisa ser coberta por transferência entre contas ou pelo faturamento.` : '') +
+    (d.faturas.some(f => !f.fechada) ? ' As faturas de cartão ainda não fecharam, então esses valores podem subir.' : ''), 8.5, TEXT_MED, false, true), { spacing: { before: 60, after: 60 } }));
+}
 children.push(gap(80), para(tr('Fluxo de caixa por conta: quanto falta em cada semana', 12, PRIMARY, true), { spacing: { after: 60 }, keepNext: true }));
 // tabela transposta: linhas = passos do fluxo, colunas = contas (valores em R$)
 const CURTO = { 'Sicredi 33': 'Sicredi 33', 'Sicredi 88': 'Sicredi 88', 'Sicredi 95': 'Sicredi 95', 'Nubank Dra. Rayssa': 'Nubank Rayssa', 'Nubank Dr. Deusdedit': 'Nubank Deusdedit', 'Caixa / espécie': 'Espécie', 'Conta não informada': 'Sem conta' };

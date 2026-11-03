@@ -137,6 +137,12 @@ ${sec(`1. Saldos em conta em ${dbr(d.cutoff)}`)}
 
 ${sec('2. Resumo: o que precisa estar na conta')}
 <div class="cards kpi">${card('Disponível hoje', brl(totalCaixa), 'sem a obra', cls(totalCaixa))}${card(`A pagar até seg ${dm(d.segunda_pagamento)}`, brl(tAb), AB_LBL, 'alert', false, kCol[0])}${card(`Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, brl(tJ1), `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'alert', true, kCol[1])}${card(`Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, brl(tJ2), 'meta de faturamento · por conta abaixo', 'alert', false, kCol[2])}</div>
+<h3>Projeção: quanto a empresa precisa ter para honrar os compromissos</h3>
+${grid(['Para pagar tudo até', 'Precisa ter', 'Tem hoje', 'Sobra no total', 'Falta nas contas'], nec.proj.map((p, i) => ({ label: `segunda ${dm(p.ate)}`, total: i === 2, vals: [
+  { t: brl(p.precisa), c: 'alert', k: det(`Compromissos acumulados até ${dm(p.ate)}`, [abertoAteSeg, d.pagar_j1, d.pagar_j2].slice(0, i + 1).flat()) },
+  { t: brl(p.tem) }, { t: brl(p.saldoFinal), c: cls(p.saldoFinal), b: true },
+  { t: p.faltaContas ? brl(p.faltaContas) : '—', c: p.faltaContas ? 'crit' : 'pos', b: true }] })))}
+<div class="note">“Precisa ter” soma tudo o que vence até a data (acumulado, incluindo ${PREV ? 'o já programado e ' : ''}os vencidos sem baixa). “Falta nas contas” é o que o saldo de cada conta não cobre, somado; é a soma acumulada das FALTAS do fluxo abaixo.${nec.proj[2].saldoFinal >= 0 && nec.proj[2].faltaContas ? ` No total a empresa tem o suficiente até ${dm(nec.proj[2].ate)}, mas o dinheiro não está nas contas que pagam: a falta precisa ser coberta por transferência entre contas ou pelo faturamento.` : ''}${d.faturas.some(f => !f.fechada) ? ' As faturas de cartão ainda não fecharam, então esses valores podem subir.' : ''}</div>
 <h3>Fluxo de caixa por conta: quanto falta em cada semana</h3>
 <div class="fxs">${fluxo}</div>
 <div class="fxt"><div>Total que falta até ${dm(d.j1[1])} <small>(depositar até seg ${dm(d.segunda_pagamento)})</small> <b class="crit">${brl(nec.tot('falta1'))}</b></div><div>Total que falta até ${dm(d.j2[1])} <small>(faturar até seg ${dm(segJ2)})</small> <b class="alert">${brl(nec.tot('faturar'))}</b></div></div>

@@ -20,6 +20,14 @@ module.exports = function necessidade(d, ORD) {
     const prov1 = r2((saldo || 0) - aberto), prov2 = r2(Math.max(0, prov1 - j1));
     return { conta, saldo, aberto, prov1, j1, falta1: r2(Math.max(0, j1 - prov1)), prov2, pagar, sobra, falta: Math.max(0, -sobra), pagar2, faturar: r2(Math.max(0, pagar2 - Math.max(0, sobra))), sobraFinal: r2(sobra - pagar2) };
   }).filter(r => r.saldo !== null || r.pagar || r.pagar2);
-  return { rows, falta: r2(rows.reduce((a, r) => a + r.falta, 0)), faturar: r2(rows.reduce((a, r) => a + r.faturar, 0)),
+  // Projeção acumulada: quanto a empresa precisa ter para honrar tudo até cada data × o que tem hoje.
+  // faltaContas soma, conta por conta, o que o saldo da própria conta não cobre (igual às FALTAS do fluxo, acumuladas).
+  const proj = [['aberto'], ['aberto', 'j1'], ['aberto', 'j1', 'pagar2']].map((ks, i) => {
+    const need = r => r2(ks.reduce((a, k) => a + r[k], 0));
+    const precisa = r2(rows.reduce((a, r) => a + need(r), 0)), tem = r2(rows.reduce((a, r) => a + (r.saldo || 0), 0));
+    return { ate: [d.segunda_pagamento, d.j1[1], d.j2[1]][i], precisa, tem, saldoFinal: r2(tem - precisa),
+      faltaContas: r2(rows.reduce((a, r) => a + Math.max(0, need(r) - (r.saldo || 0)), 0)) };
+  });
+  return { proj, rows, falta: r2(rows.reduce((a, r) => a + r.falta, 0)), faturar: r2(rows.reduce((a, r) => a + r.faturar, 0)),
     pagar: r2(rows.reduce((a, r) => a + r.pagar, 0)), tot: k => r2(rows.reduce((a, r) => a + (r[k] || 0), 0)), pagar2: r2(rows.reduce((a, r) => a + r.pagar2, 0)) };
 };
