@@ -11,6 +11,10 @@ const brl = v => (v < 0 ? '-R$ ' : 'R$ ') + Math.abs(v).toLocaleString('pt-BR', 
 const dbr = s => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
 const dm = s => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
 const addDays = (s, n) => new Date(Date.parse(s + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+
+// Prévia no meio da semana: as contas até a segunda já foram programadas na segunda anterior (o cliente antecipa tudo), mas o débito ainda não saiu do saldo na Nibo.
+const PREV = d.cutoff < d.ref, progSeg = addDays(d.ref, -4);
+const AB_LBL = PREV ? `já programado em ${dm(progSeg)} (até ${dm(d.segunda_pagamento)}) + vencidos` : `vencidos + até ${dm(d.segunda_pagamento)}`;
 const sum = (a, f = x => x.valor) => Math.round(a.reduce((s, x) => s + f(x), 0) * 100) / 100;
 const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const UN = { 'CAJAZEIRAS-PB': 'Cajazeiras', 'TRIUNFO-PB': 'Triunfo', 'OBRA': 'Obra', 'SÓCIOS': 'Sócios', 'Não identificado': 'Não identificado' };
@@ -71,7 +75,7 @@ const lk = (text, k, c = '') => (k ? `<span class="lk ${c}"${kAttr(k)}>${esc(tex
 
 const cols = [abertoAteSeg, d.pagar_j1, d.pagar_j2];
 const cpHead = [`Até seg ${dm(d.segunda_pagamento)}`, `${dm(d.j1[0])} a ${dm(d.j1[1])}`, `${dm(d.j2[0])} a ${dm(d.j2[1])}`];
-const cpTit = [`A pagar até seg ${dm(d.segunda_pagamento)} (vencidos + até ${dm(d.segunda_pagamento)})`, `Contas de ${dm(d.j1[0])} a ${dm(d.j1[1])} (pagar seg ${dm(d.segunda_pagamento)})`, `Contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}`];
+const cpTit = [`A pagar até seg ${dm(d.segunda_pagamento)} (${AB_LBL})`, `Contas de ${dm(d.j1[0])} a ${dm(d.j1[1])} (pagar seg ${dm(d.segunda_pagamento)})`, `Contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}`];
 const kCol = cols.map((c, i) => det(cpTit[i], c));
 const v = (rows, title) => { const x = sum(rows); return { t: x ? brl(x) : '—', c: x ? 'alert' : 'muted', k: x ? det(title, rows) : null }; };
 const totRow = { label: 'Total', total: true, vals: cols.map((c, i) => ({ t: brl(sum(c)), c: 'alert', k: kCol[i] })) };
@@ -99,7 +103,7 @@ const bancoCards = bancos.map(s => {
 // fluxo de caixa por conta, semana a semana (um cartão por conta)
 const fluxo = nec.rows.map(r => {
   const de = rows => rows.filter(x => x.conta_pag === r.conta);
-  const kAb = det(`${r.conta} — vencidos + até seg ${dm(d.segunda_pagamento)}`, de(abertoAteSeg));
+  const kAb = det(`${r.conta} — ${AB_LBL}`, de(abertoAteSeg));
   const kJ1 = det(`${r.conta} — contas de ${dm(d.j1[0])} a ${dm(d.j1[1])}`, de(d.pagar_j1));
   const kJ2 = det(`${r.conta} — contas de ${dm(d.j2[0])} a ${dm(d.j2[1])}`, de(d.pagar_j2));
   const kF1 = r.falta1 ? det(`${r.conta} — falta até ${dm(d.j1[1])}`, de(d.pagar_j1), 'pagar', `Falta ${brl(r.falta1)} = contas de ${dm(d.j1[0])} a ${dm(d.j1[1])} (${brl(r.j1)}) − saldo provisionado (${brl(r.prov1)}). Precisa entrar na conta até a segunda ${dm(d.segunda_pagamento)}.`) : null;
@@ -108,7 +112,7 @@ const fluxo = nec.rows.map(r => {
   const neg = v => (v ? brl(v) : '—');
   return `<div class="fx${r.falta1 || r.faturar ? ' falta' : ''}"><div class="fxh">${esc(r.conta)}</div>
 ${ln('Saldo hoje', r.saldo === null ? null : brl(r.saldo), r.saldo === null ? '' : cls(r.saldo), null, 'st')}
-${ln(`(−) Vencidos + até seg ${dm(d.segunda_pagamento)}`, neg(r.aberto), r.aberto ? 'alert' : 'muted', kAb)}
+${ln(`(−) ${PREV ? 'Já programado' : 'Vencidos'} + até seg ${dm(d.segunda_pagamento)}`, neg(r.aberto), r.aberto ? 'alert' : 'muted', kAb)}
 ${ln(`= Saldo para ${dm(d.j1[0])} a ${dm(d.j1[1])}`, brl(r.prov1), r.prov1 < 0 ? 'crit' : 'pos', null, 'st')}
 ${ln(`(−) Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, neg(r.j1), r.j1 ? 'alert' : 'muted', kJ1)}
 ${ln(`FALTA até ${dm(d.j1[1])} <small>depositar até ${dm(d.segunda_pagamento)}</small>`, r.falta1 ? brl(r.falta1) : '✔ coberto', r.falta1 ? 'crit' : 'pos', kF1, 'fz')}
@@ -132,7 +136,7 @@ ${sec(`1. Saldos em conta em ${dbr(d.cutoff)}`)}
 <div class="note">Fora do total: ${fora.map(s => `${esc(nomeCurto(s.conta))} ${brl(s.saldo)}`).join(' · ')}.${pend.length ? ` Há ${sum(pend, s => s.pend_qtd)} movimentos de extrato ainda em lançamento.` : ''}</div>
 
 ${sec('2. Resumo: o que precisa estar na conta')}
-<div class="cards kpi">${card('Disponível hoje', brl(totalCaixa), 'sem a obra', cls(totalCaixa))}${card(`A pagar até seg ${dm(d.segunda_pagamento)}`, brl(tAb), `vencidos + até ${dm(d.segunda_pagamento)}`, 'alert', false, kCol[0])}${card(`Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, brl(tJ1), `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'alert', true, kCol[1])}${card(`Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, brl(tJ2), 'meta de faturamento · por conta abaixo', 'alert', false, kCol[2])}</div>
+<div class="cards kpi">${card('Disponível hoje', brl(totalCaixa), 'sem a obra', cls(totalCaixa))}${card(`A pagar até seg ${dm(d.segunda_pagamento)}`, brl(tAb), AB_LBL, 'alert', false, kCol[0])}${card(`Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, brl(tJ1), `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'alert', true, kCol[1])}${card(`Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`, brl(tJ2), 'meta de faturamento · por conta abaixo', 'alert', false, kCol[2])}</div>
 <h3>Fluxo de caixa por conta: quanto falta em cada semana</h3>
 <div class="fxs">${fluxo}</div>
 <div class="fxt"><div>Total que falta até ${dm(d.j1[1])} <small>(depositar até seg ${dm(d.segunda_pagamento)})</small> <b class="crit">${brl(nec.tot('falta1'))}</b></div><div>Total que falta até ${dm(d.j2[1])} <small>(faturar até seg ${dm(segJ2)})</small> <b class="alert">${brl(nec.tot('faturar'))}</b></div></div>

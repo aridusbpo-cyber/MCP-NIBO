@@ -22,6 +22,10 @@ const dm = s => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 const dia = s => DIAS[new Date(s + 'T12:00:00Z').getUTCDay()];
 const addDays = (s, n) => new Date(Date.parse(s + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+
+// Prévia no meio da semana: as contas até a segunda já foram programadas na segunda anterior (o cliente antecipa tudo), mas o débito ainda não saiu do saldo na Nibo.
+const PREV = d.cutoff < d.ref, progSeg = addDays(d.ref, -4);
+const AB_LBL = PREV ? `já programado em ${dm(progSeg)} (até ${dm(d.segunda_pagamento)}) + vencidos` : `vencidos + até ${dm(d.segunda_pagamento)}`;
 const sum = (a, f = x => x.valor) => Math.round(a.reduce((s, x) => s + f(x), 0) * 100) / 100;
 const UN = { 'CAJAZEIRAS-PB': 'Cajazeiras', 'TRIUNFO-PB': 'Triunfo', 'OBRA': 'Obra', 'SÓCIOS': 'Sócios', 'Não identificado': 'Não identificado' };
 
@@ -151,7 +155,7 @@ children.push(gap(40), note(`Fora do total: ${fora.map(s => `${nomeCurto(s.conta
 children.push(...secHead('2. Resumo: o que precisa estar na conta'));
 const kw = [2340, 2340, 2340, 2340];
 const kpiHead = ['Disponível hoje', `A pagar até seg ${dm(d.segunda_pagamento)}`, `Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, `Contas ${dm(d.j2[0])} a ${dm(d.j2[1])}`];
-const kpiSub = ['sem a obra', `vencidos + até ${dm(d.segunda_pagamento)}`, `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'meta de faturamento · por conta abaixo'];
+const kpiSub = ['sem a obra', AB_LBL, `pagar na segunda ${dm(d.segunda_pagamento)}` + (d.pagar_j1.some(r => r.fatura_aberta) ? ' · com faturas de cartão parciais' : ''), 'meta de faturamento · por conta abaixo'];
 const kpiVal = [[brl(totalCaixa), sign(totalCaixa)], [brl(tAb), RED], [brl(tJ1), RED], [brl(tJ2), RED]];
 children.push(table([
   new TableRow({ cantSplit: true, children: kpiHead.map((h, i) => cell([tr(h.toUpperCase(), 9, PRIMARY, true)], { w: kw[i], fill: i === 2 ? GOLD_TINT : BG_TINT, borders: { top: line(BORDER), bottom: line(BORDER), left: line(BORDER), right: line(BORDER) }, align: AlignmentType.CENTER })) }),
@@ -170,7 +174,7 @@ const n2 = v => Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, 
 const fmt = v => (v < -0.004 ? '-' : '') + n2(v);
 const STEPS = [
   { l: 'Saldo hoje', k: 'saldo', f: v => [v === null ? '—' : fmt(v), v === null ? TEXT_MED : sign(v)], strong: true },
-  { l: `(−) Vencidos + até seg ${dm(d.segunda_pagamento)}`, k: 'aberto', f: v => [v ? n2(v) : '—', v ? RED : TEXT_MED] },
+  { l: `(−) ${PREV ? 'Já programado' : 'Vencidos'} + até seg ${dm(d.segunda_pagamento)}`, k: 'aberto', f: v => [v ? n2(v) : '—', v ? RED : TEXT_MED] },
   { l: `= Saldo para ${dm(d.j1[0])} a ${dm(d.j1[1])}`, k: 'prov1', f: v => [fmt(v), v < -0.004 ? ORANGE : GREEN], strong: true },
   { l: `(−) Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, k: 'j1', f: v => [v ? n2(v) : '—', v ? RED : TEXT_MED] },
   { l: `FALTA até ${dm(d.j1[1])} (depositar até ${dm(d.segunda_pagamento)})`, k: 'falta1', f: v => [v ? n2(v) : 'coberto', v ? ORANGE : GREEN], hl: true },

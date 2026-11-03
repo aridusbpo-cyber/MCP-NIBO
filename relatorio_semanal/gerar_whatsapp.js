@@ -37,7 +37,12 @@ L.push(`*Total disponível: ${brl(totalCaixa)}*`);
 if (obra) L.push(`_Reserva da obra (separada, dentro da Sicredi 88): ${brl(obra.saldo)}_`);
 L.push('');
 L.push('📅 *Contas a pagar*');
-L.push(`• Vencidos + até seg ${dm(seg)}: ${brl(sum(ab))}`);
+if (d.cutoff < d.ref) {
+  // Prévia: as contas até a segunda já foram programadas na segunda anterior; o débito ainda não saiu do saldo.
+  L.push(`• Já programado em ${dm(addDays(d.ref, -4))} (vencimentos até ${dm(seg)}): ${brl(sum(d.pagar_aberto))}`);
+  if (d.pagar_atraso.length) L.push(`• Vencidos antes de ${dm(d.cutoff)} sem baixa: ${brl(sum(d.pagar_atraso))}`);
+  L.push(`_Ainda estão no saldo até o débito, por isso são descontados no cálculo abaixo._`);
+} else L.push(`• Vencidos + até seg ${dm(seg)}: ${brl(sum(ab))}`);
 L.push(`• Contas de ${dm(d.j1[0])} a ${dm(d.j1[1])} (pagar seg ${dm(seg)}): ${brl(sum(d.pagar_j1))}`);
 L.push(`• Contas de ${dm(d.j2[0])} a ${dm(d.j2[1])} (meta de faturamento): ${brl(sum(d.pagar_j2))}`);
 L.push('');
