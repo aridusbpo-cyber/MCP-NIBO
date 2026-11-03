@@ -112,7 +112,7 @@ def faturas(ini,fim):
         if any(r['account']['id']==k and r.get('isTransfer') and r['date'][:7]==mes for r in R): continue
         out.append(dict(cartao=c,venc=venc,fechada=fechada,itens=itens,total=round(sum(i['valor'] for i in itens),2)))
     return out
-RE_CONTA=re.compile(r'(?:FATURA CART[AÃ]O PJ|CONTA|CART[AÃ]O|EMPR[EÉ]STIMO|CNPJ)\s*-?\s*(33|88|95)\b|-\s*(33|88|95)\s*$')
+RE_CONTA=re.compile(r'(?:FATURA CART[AÃ]O PJ|CONTA|CART[AÃ]O|EMPR[EÉ]STIMO|CNPJ|DAS|DARF|FGTS)\s*-?\s*(33|88|95)\b|-\s*(33|88|95)\s*$')
 def conta_pag(r):
     """Conta de onde sai o pagamento, deduzida do texto do lançamento (a Nibo não guarda isso no agendamento)."""
     t=(r['nome']+' '+r['descricao'].strip()).upper()

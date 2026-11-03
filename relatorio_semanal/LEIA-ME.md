@@ -35,3 +35,10 @@ Para cada conta de pagamento: saldo de hoje − (vencidos + contas até a segund
 
 ## HTML interativo (gerar_html.js)
 A página inicial mostra só os totais. Cada valor sublinhado ou cartão com "ver detalhes" abre uma janela com os lançamentos que formam aquele número (contas a pagar por período, unidade e conta; movimentos da semana por conta e unidade; faturas dos cartões; vencidos; a receber; a identificar). O botão "Voltar" (ou o voltar do celular) retorna ao resumo. Os dados ficam embutidos no próprio arquivo, que funciona offline.
+
+## Mensagem de WhatsApp (gerar_whatsapp.js)
+`node <repo>/relatorio_semanal/gerar_whatsapp.js dados_<sexta>.json links.json Mensagem_WhatsApp_DrOralClinic_<sexta>.txt`
+Texto pronto para colar no grupo "Gestão Financeira - Dr Oral Clinic" (negrito/itálico do WhatsApp): saldos, contas a pagar das três janelas, quanto falta em cada conta, realizado, alertas e links das planilhas. Vai junto com o HTML.
+
+## Prévia no meio da semana
+Para ver antes da sexta as contas de uma semana (terça a segunda), rode o `build_data.py` com a sexta anterior a essa terça como referência e hoje como corte. Exemplo: contas de 10/11 a 16/11 → `build_data.py 2026-11-06 2026-11-03`.
