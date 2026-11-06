@@ -109,7 +109,10 @@ def faturas(ini,fim):
         mes=venc[:7]; fechada=f"{c}:{mes}" in FECHADAS
         # já paga? (transferência do banco para o cartão no mês)
         k=[a for a,n in CARDS.items() if n==c][0]
-        if any(r['account']['id']==k and r.get('isTransfer') and r['date'][:7]==mes for r in R): continue
+        # A transferência paga as compras já lançadas no cartão; um agendamento 'CARTAO nn' ainda não pago continua em aberto.
+        if any(r['account']['id']==k and r.get('isTransfer') and r['date'][:7]==mes for r in R):
+            itens=[i for i in itens if i['origem']=='agendado']
+            if not itens: continue
         out.append(dict(cartao=c,venc=venc,fechada=fechada,itens=itens,total=round(sum(i['valor'] for i in itens),2)))
     return out
 RE_CONTA=re.compile(r'(?:FATURA CART[AÃ]O PJ|CONTA|CART[AÃ]O|EMPR[EÉ]STIMO|CNPJ|DAS|DARF|FGTS)\s*-?\s*(33|88|95)\b|-\s*(33|88|95)\s*$')
