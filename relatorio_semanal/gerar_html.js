@@ -5,7 +5,8 @@ const fs = require('fs');
 const d = JSON.parse(fs.readFileSync(process.argv[2]));
 const links = JSON.parse(fs.readFileSync(process.argv[3]));
 const OUT = process.argv[4];
-const logo = fs.readFileSync(__dirname + '/logo_final.png').toString('base64');
+// logo reduzido (120x104) para o arquivo ficar leve e caber como anexo de e-mail
+const logo = fs.readFileSync(__dirname + '/logo_html.png').toString('base64');
 
 const brl = v => (v < 0 ? '-R$ ' : 'R$ ') + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dbr = s => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
@@ -41,6 +42,8 @@ const fatAb = d.faturas.filter(f => !f.fechada);
 
 // ---- detalhes: cada janela recebe uma chave; o navegador mostra a lista ao clicar ----
 const DET = {};
+const ROWS = [], ROWI = new Map();
+const rowIdx = o => { const j = JSON.stringify(o); if (!ROWI.has(j)) { ROWI.set(j, ROWS.length); ROWS.push(o); } return ROWI.get(j); };
 let nDet = 0;
 const vencidos = new Set(d.pagar_atraso.map(r => r.id));
 const FAT = {};
@@ -60,7 +63,8 @@ function slim(r, kind) {
 function det(title, rows, kind = 'pagar', nota = '') {
   if (!rows.length) return null;
   const k = 'd' + (++nDet);
-  DET[k] = { title, nota, kind, rows: rows.map(r => slim(r, kind)).sort((a, b) => a.d.localeCompare(b.d) || b.v - a.v) };
+  // cada lançamento é guardado uma vez só (ROWS); a janela guarda os índices, o que deixa o arquivo bem menor
+  DET[k] = { title, nota, kind, rows: rows.map(r => slim(r, kind)).sort((a, b) => a.d.localeCompare(b.d) || b.v - a.v).map(rowIdx) };
   return k;
 }
 const kAttr = k => (k ? ` data-k="${k}" tabindex="0" role="button"` : '');
@@ -183,7 +187,9 @@ ${(links.obs || []).map((t, i) => `<div class="obs"><div class="num">${i + 1}</d
 
 // ---- script do navegador: abre/fecha a janela de detalhe pelo #hash (o botão voltar do celular também funciona) ----
 const client = `
+const ROWS = ${JSON.stringify(ROWS).replace(/</g, '\\u003c')};
 const DET = ${JSON.stringify(DET).replace(/</g, '\\u003c')};
+for (const k in DET) DET[k].rows = DET[k].rows.map(i => ROWS[i]);
 const brl = v => (v < 0 ? '-R$ ' : 'R$ ') + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const dm = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) : '';

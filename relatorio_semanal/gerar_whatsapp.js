@@ -1,9 +1,11 @@
 // Mensagem padrão de WhatsApp com o resumo do relatório semanal DR Oral (texto puro, formatação do WhatsApp).
-// Uso: node gerar_whatsapp.js dados.json links.json saida.txt
+// Uso: node gerar_whatsapp.js dados.json links.json saida.txt [email]
+// Com 'email' no 4º argumento, a mensagem avisa que o relatório completo foi enviado por e-mail (sem anexo no WhatsApp).
 const fs = require('fs');
 const d = JSON.parse(fs.readFileSync(process.argv[2]));
 const links = JSON.parse(fs.readFileSync(process.argv[3]));
 const OUT = process.argv[4];
+const EMAIL = process.argv[5] === 'email';
 
 const brl = v => (v < 0 ? '-R$ ' : 'R$ ') + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dm = s => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
@@ -29,6 +31,7 @@ const ni = d.nao_identificados;
 const L = [];
 L.push('*DR Oral Clinic — Resumo financeiro semanal*');
 L.push(`_Dados da Nibo até ${dm(d.cutoff)}/${d.cutoff.slice(0, 4)}${d.cutoff < d.ref ? ` · prévia da semana que fecha em ${dm(d.ref)}` : ''}_`);
+if (EMAIL) { L.push(''); L.push('📧 O relatório semanal completo já está disponível no seu e-mail. Segue o resumo:'); }
 L.push('');
 L.push(`💰 *Saldos em ${dm(d.cutoff)}*`);
 bancos.forEach(s => L.push(`• ${nomeCurto(s.conta)}: ${brl(s.saldo)}`));
@@ -78,7 +81,7 @@ L.push('🔗 *Planilhas*');
 L.push(`Contas a pagar: ${links.cp}`);
 L.push(`Lançamentos a identificar: ${links.ni}`);
 L.push('');
-L.push('_Relatório completo em anexo (abra o arquivo HTML e toque nos valores para ver o detalhe)._');
+L.push(EMAIL ? '_O relatório completo e interativo está no e-mail (arquivo HTML em anexo)._' : '_Relatório completo em anexo (abra o arquivo HTML e toque nos valores para ver o detalhe)._');
 L.push('_Aridus BPO Financeiro_');
 
 fs.writeFileSync(OUT, L.join('\n') + '\n');
