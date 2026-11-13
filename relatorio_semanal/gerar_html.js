@@ -15,7 +15,9 @@ const addDays = (s, n) => new Date(Date.parse(s + 'T12:00:00Z') + n * 864e5).toI
 
 // Prévia no meio da semana: as contas até a segunda já foram programadas na segunda anterior (o cliente antecipa tudo), mas o débito ainda não saiu do saldo na Nibo.
 const PREV = d.cutoff < d.ref, progSeg = addDays(d.ref, -4);
-const AB_LBL = PREV ? `já programado em ${dm(progSeg)} (até ${dm(d.segunda_pagamento)}) + vencidos` : `vencidos + até ${dm(d.segunda_pagamento)}`;
+// NEXT: relatório da semana seguinte (corte ao menos 7 dias antes da sexta de referência); as contas até a segunda de pagamento são programadas em duas segundas
+const NEXT = (new Date(d.ref) - new Date(d.cutoff)) / 864e5 >= 7;
+const AB_LBL = NEXT ? `vencidos + vencimentos até ${dm(d.segunda_pagamento)} (programados nas segundas ${dm(addDays(d.ref, -11))} e ${dm(progSeg)})` : PREV ? `já programado em ${dm(progSeg)} (até ${dm(d.segunda_pagamento)}) + vencidos` : `vencidos + até ${dm(d.segunda_pagamento)}`;
 const sum = (a, f = x => x.valor) => Math.round(a.reduce((s, x) => s + f(x), 0) * 100) / 100;
 const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const UN = { 'CAJAZEIRAS-PB': 'Cajazeiras', 'TRIUNFO-PB': 'Triunfo', 'OBRA': 'Obra', 'SÓCIOS': 'Sócios', 'Não identificado': 'Não identificado' };
@@ -116,7 +118,7 @@ const fluxo = nec.rows.map(r => {
   const neg = v => (v ? brl(v) : '—');
   return `<div class="fx${r.falta1 || r.faturar ? ' falta' : ''}"><div class="fxh">${esc(r.conta)}</div>
 ${ln('Saldo hoje', r.saldo === null ? null : brl(r.saldo), r.saldo === null ? '' : cls(r.saldo), null, 'st')}
-${ln(`(−) ${PREV ? 'Já programado' : 'Vencidos'} + até seg ${dm(d.segunda_pagamento)}`, neg(r.aberto), r.aberto ? 'alert' : 'muted', kAb)}
+${ln(`(−) ${PREV && !NEXT ? 'Já programado' : 'Vencidos'} + até seg ${dm(d.segunda_pagamento)}`, neg(r.aberto), r.aberto ? 'alert' : 'muted', kAb)}
 ${ln(`= Saldo para ${dm(d.j1[0])} a ${dm(d.j1[1])}`, brl(r.prov1), r.prov1 < 0 ? 'crit' : 'pos', null, 'st')}
 ${ln(`(−) Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, neg(r.j1), r.j1 ? 'alert' : 'muted', kJ1)}
 ${ln(`FALTA até ${dm(d.j1[1])} <small>depositar até ${dm(d.segunda_pagamento)}</small>`, r.falta1 ? brl(r.falta1) : '✔ coberto', r.falta1 ? 'crit' : 'pos', kF1, 'fz')}
@@ -130,7 +132,7 @@ const body = `
 <header><img src="data:image/png;base64,${logo}" alt="Aridus BPO"><div class="t"><b>RELATÓRIO SEMANAL</b> <i>— Fluxo de Caixa &amp; Previsões</i><div>DR Oral Clinic | Atualizado em ${dbr(d.cutoff)}</div></div></header>
 <h1>Relatório Semanal — DR Oral Clinic</h1>
 <div class="meta">Semana de ${dbr(d.semana_completa[0])} a ${dbr(d.semana_completa[1])} · <b>dados da Nibo até ${dbr(d.cutoff)}</b></div>
-${d.cutoff < d.ref ? `<div class="note">Prévia: a semana ainda não terminou. A versão final é gerada na sexta-feira ${dbr(d.ref)}, às 17h.</div>` : ''}
+${d.cutoff < d.ref && !NEXT ? `<div class="note">Prévia: a semana ainda não terminou. A versão final é gerada na sexta-feira ${dbr(d.ref)}, às 17h.</div>` : ''}
 <div class="legend"><span class="pos">■ positivo</span><span class="alert">■ alerta</span><span class="crit">■ crítico</span></div>
 <div class="hint">👆 Toque em qualquer valor <span class="lk">sublinhado</span> ou cartão com “ver detalhes” para abrir os lançamentos. Use “Voltar” para retornar ao resumo.</div>
 

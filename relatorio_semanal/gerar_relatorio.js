@@ -25,7 +25,9 @@ const addDays = (s, n) => new Date(Date.parse(s + 'T12:00:00Z') + n * 864e5).toI
 
 // Prévia no meio da semana: as contas até a segunda já foram programadas na segunda anterior (o cliente antecipa tudo), mas o débito ainda não saiu do saldo na Nibo.
 const PREV = d.cutoff < d.ref, progSeg = addDays(d.ref, -4);
-const AB_LBL = PREV ? `já programado em ${dm(progSeg)} (até ${dm(d.segunda_pagamento)}) + vencidos` : `vencidos + até ${dm(d.segunda_pagamento)}`;
+// NEXT: relatório da semana seguinte (corte ao menos 7 dias antes da sexta de referência); as contas até a segunda de pagamento são programadas em duas segundas
+const NEXT = (new Date(d.ref) - new Date(d.cutoff)) / 864e5 >= 7;
+const AB_LBL = NEXT ? `vencidos + vencimentos até ${dm(d.segunda_pagamento)} (programados nas segundas ${dm(addDays(d.ref, -11))} e ${dm(progSeg)})` : PREV ? `já programado em ${dm(progSeg)} (até ${dm(d.segunda_pagamento)}) + vencidos` : `vencidos + até ${dm(d.segunda_pagamento)}`;
 const sum = (a, f = x => x.valor) => Math.round(a.reduce((s, x) => s + f(x), 0) * 100) / 100;
 const UN = { 'CAJAZEIRAS-PB': 'Cajazeiras', 'TRIUNFO-PB': 'Triunfo', 'OBRA': 'Obra', 'SÓCIOS': 'Sócios', 'Não identificado': 'Não identificado' };
 
@@ -119,7 +121,7 @@ const ORANGE = 'C9731E', GREEN = '2E7D4F';
 const sign = v => (v >= 0 ? GREEN : RED);
 children.push(para(tr('Relatório Semanal — DR Oral Clinic', 18, PRIMARY, true), { border: { bottom: line(ACCENT, 4) }, spacing: { after: 100 } }));
 children.push(para([tr(`Semana de ${dbr(d.semana_completa[0])} a ${dbr(d.semana_completa[1])} · `, 10, TEXT_MED), tr(`dados da Nibo até ${dbr(d.cutoff)}`, 10, TEXT_MED, true)], { spacing: { after: 60 } }));
-if (parcial) children.push(note(`Prévia: a semana ainda não terminou. A versão final é gerada na sexta-feira ${dbr(d.ref)}, às 17h.`));
+if (parcial && !NEXT) children.push(note(`Prévia: a semana ainda não terminou. A versão final é gerada na sexta-feira ${dbr(d.ref)}, às 17h.`));
 children.push(para([tr('Legenda: ', 9, TEXT_MED, true), tr('■ positivo  ', 9, GREEN, true), tr('■ alerta  ', 9, RED, true), tr('■ crítico', 9, ORANGE, true)], { spacing: { after: 40 } }));
 
 // tabela compacta com cor por célula: rows = [{label, vals:[{t,c}], bold}]
@@ -193,7 +195,7 @@ const n2 = v => Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, 
 const fmt = v => (v < -0.004 ? '-' : '') + n2(v);
 const STEPS = [
   { l: 'Saldo hoje', k: 'saldo', f: v => [v === null ? '—' : fmt(v), v === null ? TEXT_MED : sign(v)], strong: true },
-  { l: `(−) ${PREV ? 'Já programado' : 'Vencidos'} + até seg ${dm(d.segunda_pagamento)}`, k: 'aberto', f: v => [v ? n2(v) : '—', v ? RED : TEXT_MED] },
+  { l: `(−) ${PREV && !NEXT ? 'Já programado' : 'Vencidos'} + até seg ${dm(d.segunda_pagamento)}`, k: 'aberto', f: v => [v ? n2(v) : '—', v ? RED : TEXT_MED] },
   { l: `= Saldo para ${dm(d.j1[0])} a ${dm(d.j1[1])}`, k: 'prov1', f: v => [fmt(v), v < -0.004 ? ORANGE : GREEN], strong: true },
   { l: `(−) Contas ${dm(d.j1[0])} a ${dm(d.j1[1])}`, k: 'j1', f: v => [v ? n2(v) : '—', v ? RED : TEXT_MED] },
   { l: `FALTA até ${dm(d.j1[1])} (depositar até ${dm(d.segunda_pagamento)})`, k: 'falta1', f: v => [v ? n2(v) : 'coberto', v ? ORANGE : GREEN], hl: true },

@@ -15,6 +15,7 @@ const nomeCurto = n => n.replace(/^\d+(\.\d+)?\s*[.-]?\s*/, '').replace(/C\/C\s*
 
 const ORD = ['Sicredi 33', 'Sicredi 88', 'Sicredi 95', 'Nubank Dra. Rayssa', 'Nubank Dr. Deusdedit', 'Caixa / espécie', 'Conta não informada'];
 const nec = require('./necessidade')(d, ORD);
+const NEXT = (new Date(d.ref) - new Date(d.cutoff)) / 864e5 >= 7;
 const contas = d.saldos.filter(s => s.liquidez);
 const totalCaixa = sum(contas, s => s.saldo);
 const cofre = contas.filter(s => /Cofre|Caixa/i.test(s.conta));
@@ -30,7 +31,7 @@ const ni = d.nao_identificados;
 
 const L = [];
 L.push('*DR Oral Clinic — Resumo financeiro semanal*');
-L.push(`_Dados da Nibo até ${dm(d.cutoff)}/${d.cutoff.slice(0, 4)}${d.cutoff < d.ref ? ` · prévia da semana que fecha em ${dm(d.ref)}` : ''}_`);
+L.push(`_Dados da Nibo até ${dm(d.cutoff)}/${d.cutoff.slice(0, 4)}${NEXT ? ` · contas de ${dm(d.j1[0])} a ${dm(d.j1[1])}` : d.cutoff < d.ref ? ` · prévia da semana que fecha em ${dm(d.ref)}` : ''}_`);
 if (EMAIL) { L.push(''); L.push('📧 O relatório semanal completo já está disponível no seu e-mail. Segue o resumo:'); }
 L.push('');
 L.push(`💰 *Saldos em ${dm(d.cutoff)}*`);
@@ -42,7 +43,7 @@ L.push('');
 L.push('📅 *Contas a pagar*');
 if (d.cutoff < d.ref) {
   // Prévia: as contas até a segunda já foram programadas na segunda anterior; o débito ainda não saiu do saldo.
-  L.push(`• Já programado em ${dm(addDays(d.ref, -4))} (vencimentos até ${dm(seg)}): ${brl(sum(d.pagar_aberto))}`);
+  L.push(NEXT ? `• Vencimentos de ${dm(d.cutoff)} a ${dm(seg)} (programados nas segundas ${dm(addDays(d.ref, -11))} e ${dm(addDays(d.ref, -4))}): ${brl(sum(d.pagar_aberto))}` : `• Já programado em ${dm(addDays(d.ref, -4))} (vencimentos até ${dm(seg)}): ${brl(sum(d.pagar_aberto))}`);
   if (d.pagar_atraso.length) L.push(`• Vencidos antes de ${dm(d.cutoff)} sem baixa: ${brl(sum(d.pagar_atraso))}`);
   L.push(`_Ainda estão no saldo até o débito, por isso são descontados no cálculo abaixo._`);
 } else L.push(`• Vencidos + até seg ${dm(seg)}: ${brl(sum(ab))}`);

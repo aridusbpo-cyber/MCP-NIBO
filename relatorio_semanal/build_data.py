@@ -12,6 +12,9 @@ def ccname(c): return norm_cc(c.get('costCenterDescription') or CCMAP.get(c.get(
 def norm_cc(n): return 'Não identificado' if (not n or n=='Não Identificado') else n
 # janelas
 wk_ini=REF-dt.timedelta(days=6)                      # sábado anterior .. sexta
+WK_FIM=REF
+if CUT<wk_ini:                                       # relatório da semana seguinte: realizado = semana que fecha no corte
+    wk_ini=CUT-dt.timedelta(days=6); WK_FIM=CUT
 mon_next=REF+dt.timedelta(days=3)                    # segunda em que o cliente paga
 J1=(REF+dt.timedelta(days=4),REF+dt.timedelta(days=10))   # terça..segunda
 J2=(REF+dt.timedelta(days=11),REF+dt.timedelta(days=17))
@@ -44,7 +47,12 @@ for aid,a in acc.items():
 def split(x):
     cc=x.get('costCenters') or []
     if not cc: return [('Não identificado',x['value'])]
-    return [(ccname(c),c['value']) for c in cc]
+    # o valor do centro de custo na Nibo pode ficar diferente do valor do lançamento (ex.: 100% = 2.550 num recebimento de 1.080);
+    # o percentual é a fonte segura, e o total sempre bate com o lançamento
+    pt=sum(c.get('percent') or 0 for c in cc)
+    if pt>0: return [(ccname(c),x['value']*(c.get('percent') or 0)/pt) for c in cc]
+    vt=sum(c.get('value') or 0 for c in cc)
+    return [(ccname(c),x['value']*(c.get('value') or 0)/vt) for c in cc] if vt else [('Não identificado',x['value'])]
 def cat(x):
     cs=x.get('categories') or []
     return ' + '.join(c['categoryName'] for c in cs) if cs else ''
@@ -168,7 +176,7 @@ for aid,items in REC.items():
                 nome=e.get('counterpartyName') or '',descricao=e['description'],conta=acc[aid]['name'],valor=abs(e['value']),
                 motivo='Movimento do banco sem lançamento na Nibo',id=e['id']))
 ni.sort(key=lambda r:(r['data'],r['tipo']))
-out=dict(ref=str(REF),cutoff=str(CUT),semana=[str(wk_ini),str(min(REF,CUT))],semana_completa=[str(wk_ini),str(REF)],
+out=dict(ref=str(REF),cutoff=str(CUT),semana=[str(wk_ini),str(min(REF,CUT))],semana_completa=[str(wk_ini),str(WK_FIM)],
     segunda_pagamento=str(mon_next),j1=[str(x) for x in J1],j2=[str(x) for x in J2],aberto_ate_segunda=[str(CUT),str(OPEN_NOW[1])],
     saldos=saldos,mov=mov,pagar_atraso=pagar_atraso,pagar_aberto=pagar_aberto,pagar_j1=pagar_j1,pagar_j2=pagar_j2,
     receber_j1=receber_j1,faturas=fat_ab+fat_j1+fat_j2,receber_j2=receber_j2,receber_atraso=receber_atraso,nao_identificados=ni,units=UNITS)
